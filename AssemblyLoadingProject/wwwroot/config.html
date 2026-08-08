@@ -1,4 +1,12 @@
 <!DOCTYPE html>
+<!--
+  config.html —— 插件配置与启动页
+  功能：
+    1. 从后端加载 DLL 列表，选择要操作的插件；
+    2. 编辑启用状态、执行间隔、备注，以及键值对形式的执行参数；
+    3. 保存并应用 / 仅加载 / 立即执行 / 卸载。
+  所有操作通过 fetch 调用后端 Minimal API（见 Program.cs），不依赖任何前端框架。
+-->
 <html lang="zh">
 <head>
 <meta charset="utf-8" />
@@ -6,9 +14,12 @@
 <script src="/app.js"></script>
 </head>
 <body>
-<h1>配置与启动</h1>
+<!-- 页面顶部导航 -->
 <p><a href="/index.html">列表</a> | <a href="/config.html">配置</a> | <a href="/status.html">状态</a></p>
 
+<h1>配置与启动</h1>
+
+<!-- 插件选择区：下拉选择 DLL，或刷新列表 -->
 <div>
     <label>选择 DLL：</label>
     <select id="fileSel" onchange="loadConfig()"></select>
@@ -17,6 +28,7 @@
 </div>
 <hr />
 
+<!-- 配置编辑区：选中插件后才显示 -->
 <div id="configPanel" style="display:none">
     <h3>配置</h3>
     <table cellpadding="4" cellspacing="0">
@@ -26,6 +38,7 @@
     </table>
 
     <h4>执行参数（键值对）</h4>
+    <!-- 参数表：可动态增删行；空参数名会被忽略 -->
     <table id="paramTable" cellpadding="4" cellspacing="0" border="1" style="border-collapse:collapse">
         <thead><tr><th>参数名</th><th>参数值</th><th></th></tr></thead>
         <tbody></tbody>
@@ -33,6 +46,7 @@
     <button onclick="addParam()">+ 添加参数</button>
     <br /><br />
 
+    <!-- 操作区 -->
     <button onclick="saveConfig()">保存并应用</button>
     <button onclick="loadOnly()">仅加载</button>
     <button onclick="runOnce()">立即执行</button>
@@ -41,8 +55,12 @@
 </div>
 
 <script>
+// 当前已扫描到的插件列表（用于展示描述）
 let files = [];
 
+/**
+ * 拉取插件列表填充下拉框，并尽量保持已选中的项。
+ */
 async function refreshList() {
     const data = await apiGet('/api/plugins');
     files = data || [];
@@ -54,6 +72,9 @@ async function refreshList() {
     if (sel.value) loadConfig();
 }
 
+/**
+ * 加载选中插件的当前配置并回填表单。
+ */
 async function loadConfig() {
     const file = document.getElementById('fileSel').value;
     const msg = document.getElementById('msg');
@@ -68,15 +89,14 @@ async function loadConfig() {
         document.getElementById('interval').value = cfg.intervalSeconds || 60;
         document.getElementById('notes').value = cfg.notes || '';
 
+        // 回填参数表
         const tb = document.querySelector('#paramTable tbody');
         tb.innerHTML = '';
         const params = cfg.parameters || {};
-        for (const k in params) {
-            addParamRow(k, params[k]);
-        }
+        for (const k in params) addParamRow(k, params[k]);
         if (Object.keys(params).length === 0) addParamRow('', '');
 
-        // 显示描述
+        // 展示插件描述
         const st = files.find(f => f.assemblyFile.toLowerCase() === file.toLowerCase());
         desc.textContent = st ? '（' + (st.description || '') + '）' : '';
 
@@ -87,10 +107,12 @@ async function loadConfig() {
     }
 }
 
+/** 添加一行空参数。 */
 function addParam() {
     addParamRow('', '');
 }
 
+/** 在参数表末尾追加一行（参数名 + 参数值 + 删除按钮）。 */
 function addParamRow(key, value) {
     const tb = document.querySelector('#paramTable tbody');
     const tr = document.createElement('tr');
@@ -100,6 +122,7 @@ function addParamRow(key, value) {
     tb.appendChild(tr);
 }
 
+/** 收集参数表为对象；参数名为空的行被忽略。 */
 function collectParams() {
     const params = {};
     document.querySelectorAll('#paramTable tbody tr').forEach(tr => {
@@ -110,6 +133,7 @@ function collectParams() {
     return params;
 }
 
+/** 统一的 POST 封装：成功/失败均把结果提示到 #msg。 */
 async function doPost(path, body) {
     const msg = document.getElementById('msg');
     msg.style.color = '';
@@ -125,6 +149,7 @@ async function doPost(path, body) {
     }
 }
 
+/** 保存配置并应用（含启用状态、间隔、备注、参数）。 */
 async function saveConfig() {
     const file = document.getElementById('fileSel').value;
     if (!file) return;
@@ -137,18 +162,21 @@ async function saveConfig() {
     });
 }
 
+/** 仅加载插件（不启动调度）。 */
 async function loadOnly() {
     const file = document.getElementById('fileSel').value;
     if (!file) return;
     await doPost('/api/plugins/' + encodeURIComponent(file) + '/load');
 }
 
+/** 立即执行一次插件。 */
 async function runOnce() {
     const file = document.getElementById('fileSel').value;
     if (!file) return;
     await doPost('/api/plugins/' + encodeURIComponent(file) + '/run');
 }
 
+/** 卸载插件。 */
 async function unload() {
     const file = document.getElementById('fileSel').value;
     if (!file) return;

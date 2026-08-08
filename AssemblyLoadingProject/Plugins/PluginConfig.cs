@@ -1,8 +1,9 @@
 namespace AssemblyLoadingProject.Plugins;
 
 /// <summary>
-/// 插件配置模型。持久化到 appsettings 或运行时由前端调整。
-/// 记录一个插件是否启用、执行频率以及前端配置的参数。
+/// 插件配置模型。
+/// 记录一个插件是否启用、执行频率（间隔/Cron）以及前端配置的参数字典。
+/// 由 <see cref="PluginConfigStore"/> 持久化为 JSON，宿主重启后自动恢复。
 /// </summary>
 public sealed class PluginConfig
 {

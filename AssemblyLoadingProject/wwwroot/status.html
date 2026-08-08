@@ -1,4 +1,12 @@
 <!DOCTYPE html>
+<!--
+  status.html —— 运行状态页
+  功能：
+    1. 每 2 秒自动刷新各插件的运行状态（状态/启用/下次执行/上次结果/成功失败计数）；
+    2. 展示最近若干次的"执行历史"汇总（时间/成败/耗时/行数/消息）；
+    3. 展示近期日志（内存仅保留最近 50 条），并可点击"加载完整历史"从磁盘读取更早日志。
+  数据源：GET /api/plugins（返回各插件完整状态，含 logs 与 executionHistory）。
+-->
 <html lang="zh">
 <head>
 <meta charset="utf-8" />
@@ -6,14 +14,18 @@
 <script src="/app.js"></script>
 </head>
 <body>
-<h1>运行状态</h1>
+<!-- 页面顶部导航 -->
 <p><a href="/index.html">列表</a> | <a href="/config.html">配置</a> | <a href="/status.html">状态</a></p>
 <p>自动刷新中（每 2 秒）。<span id="time"></span></p>
 <hr />
 
+<!-- 各插件状态卡片将渲染到这里 -->
 <div id="panel"></div>
 
 <script>
+/**
+ * 拉取所有插件状态并渲染（每 2 秒由 setInterval 调用）。
+ */
 async function refresh() {
     const panel = document.getElementById('panel');
     document.getElementById('time').textContent = new Date().toLocaleTimeString();
@@ -29,8 +41,15 @@ async function refresh() {
     }
 }
 
+/**
+ * 渲染单个插件的状态卡片：基本状态表 + 执行历史表 + 近期日志。
+ * @param {object} p 单个插件的状态对象（来自 /api/plugins）
+ * @returns {string} HTML 字符串
+ */
 function renderPlugin(p) {
     const lastOk = p.lastSuccess == null ? '—' : (p.lastSuccess ? '成功' : '失败');
+
+    // 执行历史汇总表行
     const history = (p.executionHistory || []).map(h =>
         '<tr><td>' + fmtTime(h.time) + '</td>' +
         '<td style="color:' + (h.success ? '#16a34a' : '#dc2626') + '">' + (h.success ? '成功' : '失败') + '</td>' +
@@ -72,7 +91,11 @@ function renderPlugin(p) {
         '</div>';
 }
 
-// 从磁盘加载该插件的历史日志文件
+/**
+ * 从磁盘加载该插件的完整历史日志文件并展示（按需读取，避免常驻内存负担）。
+ * @param {string} file 插件 DLL 文件名
+ * @param {HTMLElement} btn 触发按钮（用于定位其后的历史展示区）
+ */
 async function loadHistory(file, btn) {
     const box = btn.closest('div').nextElementSibling;
     const pre = box.querySelector('pre');

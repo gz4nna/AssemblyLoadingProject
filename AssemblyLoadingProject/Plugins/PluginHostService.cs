@@ -10,7 +10,7 @@ namespace AssemblyLoadingProject.Plugins;
 /// 插件宿主服务：作为单例注册到 DI。
 /// 负责：
 ///  - 周期扫描插件目录（发现新 DLL / 检测更新）；
-///  - 按配置加载/卸载插件（加载延迟到参数就绪并手动触发，见 <see cref="LoadAndStartAsync"/>）；
+///  - 按配置加载/卸载插件（加载延迟到参数就绪并手动触发，见 <see cref="LoadAndStart"/>）；
 ///  - 定时调度已启用插件（基于 <see cref="PluginConfig.IntervalSeconds"/> 的轮询调度）；
 ///  - 维护运行时状态 <see cref="PluginRunState"/> 供前端展示。
 /// </summary>
@@ -263,7 +263,7 @@ public sealed class PluginHostService : IDisposable
     {
         _configs[assemblyFile] = config;
 
-        // 立即写盘持久化（3.5：前端点启用，立刻将配置状态写入持久化文件）
+        // 立即写盘持久化：前端点启用/保存，立刻将配置状态写入持久化文件
         PersistAll();
 
         var slot = _loader.Slots.FirstOrDefault(s => string.Equals(s.AssemblyFile, assemblyFile, StringComparison.OrdinalIgnoreCase));

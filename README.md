@@ -62,7 +62,7 @@ public interface IDataTransferService
 1. **放置插件**：把编译好的插件 DLL 放入 `AssemblyLoadingProject/bin/Debug/net10.0/Plugins/`
    （或 appsettings 里 `Plugins:Directory` 指定的目录）。
 2. **运行宿主**：`dotnet run --project AssemblyLoadingProject`。
-3. 浏览器打开 `http://localhost:5000/`：
+3. 浏览器打开启动页（默认 `http://localhost:5246/`，以 launchSettings 或启动参数为准）：
    - **`/`（列表页）**：查看扫描到的 DLL 与状态，可"重新扫描"。
    - **`/config.html`（配置页）**：选择 DLL → 编辑参数（键值对）、间隔、备注 → "保存并应用 / 仅加载 / 立即执行 / 卸载"。
    - **`/status.html`（状态页）**：每 2 秒实时刷新运行状态、执行历史、近期日志，并可"加载完整历史"。
@@ -144,7 +144,7 @@ public sealed class MySyncPlugin : DataTransferPluginBase
 - **TransDataHelper 作为宿主共享依赖**：插件与宿主共用同一份 `TransDataHelper`，避免重复携带驱动文件，同时保证多数据库操作契约统一。
 
 ### 可进一步改进（生产化建议）
-1. **配置持久化**：当前配置保存在内存，宿主重启后丢失。建议改为 SQLite/JSON 持久化 `PluginConfig`（含参数、启用状态、执行间隔）。
+1. **配置持久化（已实现）**：当前配置已通过 `PluginConfigStore` 持久化为 `Plugins/plugins.config.json`。可选增强：迁移到 SQLite，便于并发读写与查询。
 2. **Cron 支持**：对需要"每天 2 点"等精确时刻的任务，引入 `Cronos`/`Quartz.NET` 替换固定间隔。
 3. **失败重试与告警**：增加退避重试、执行超时（已内置 30 分钟）、失败邮件/Webhook 通知。
 4. **真实数据同步**：示例插件默认演示 SQLite→SQLite；真实库只需在插件中把 `SourceDbType/TargetDbType` 改为 MySql/Oracle/Sybase，并配好连接参数。注意 `TransDataHelper` 的 `OracleAdapter` 禁止写入（主库保护），且 Sybase 走纯文本拼接。
@@ -156,16 +156,26 @@ public sealed class MySyncPlugin : DataTransferPluginBase
 
 ```
 AssemblyLoadingProject/
-├─ Plugins/
-│  ├─ Abstractions/IDataTransferService.cs       契约接口、PluginContext、TransferResult
-│  ├─ Abstractions/DataTransferPluginBase.cs     基于 TransDataHelper 的跨库传输插件基类
-│  ├─ PluginAssemblyLoader.cs                    ALC 核心：扫描/加载/卸载/重载
-│  ├─ PluginHostService.cs                       单例宿主：调度/状态/日志
-│  ├─ PluginHostedService.cs                     标准 IHostedService 生命周期托管
-│  ├─ PluginConfig.cs                            插件配置模型
-│  └─ PluginRunState.cs                          运行状态与日志条目
-├─ Components/Pages/
-│  ├─ Home.razor                                 仪表盘
-│  └─ Plugins.razor                              插件管理
-└─ SamplePlugins/SampleSqlSyncPlugin/            示例插件(SQLite→SQLite，基于 TransDataHelper)
+├─ Plugins/                                       插件核心（宿主侧）
+│  ├─ Abstractions/
+│  │  ├─ IDataTransferService.cs                  契约接口、PluginContext、TransferResult
+│  │  ├─ DataTransferPluginBase.cs                基于 TransDataHelper 的跨库传输插件基类
+│  │  └─ LegacyEntryPointPlugin.cs                旧式/控制台插件适配器（反射调用入口方法）
+│  ├─ PluginAssemblyLoader.cs                     ALC 核心：扫描/加载/卸载/重载
+│  ├─ PluginHostService.cs                        单例宿主：调度/状态/日志
+│  ├─ PluginHostedService.cs                      标准 IHostedService 生命周期托管
+│  ├─ PluginConfig.cs                             插件配置模型
+│  ├─ PluginConfigStore.cs                        配置 JSON 持久化存储
+│  ├─ PluginRunState.cs                           运行状态与日志条目/执行历史
+│  └─ PluginLogStore.cs                           日志落盘（近期内存 + 历史文件轮转）
+├─ wwwroot/                                       纯 HTML 前端（无 Razor）
+│  ├─ index.html                                  DLL 列表页
+│  ├─ config.html                                 配置与启动页
+│  ├─ status.html                                 运行状态页（实时刷新 + 历史日志）
+│  ├─ app.js                                      前端通用 AJAX/格式化工具
+│  └─ app.css                                     基础样式
+├─ Program.cs                                     入口：Minimal API + 静态文件
+├─ Properties/launchSettings.json                 本地调试启动配置
+├─ appsettings.json                               应用配置（插件目录等）
+└─ SamplePlugins/SampleSqlSyncPlugin/             示例插件(SQLite→SQLite，基于 TransDataHelper)
 ```

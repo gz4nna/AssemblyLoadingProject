@@ -144,55 +144,57 @@ public abstract class DataTransferPluginBase : IDataTransferService
     /// 根据 dbType 与参数前缀创建 TransDataHelper 适配器。
     /// 前缀用于区分源/目标连接参数：源用 "Source"（如 SourceHost），目标用 "Target"。
     /// </summary>
-    protected static DatabaseAdapter CreateAdapter(string dbType, IReadOnlyDictionary<string, string> p, string prefix)
+    protected static DatabaseAdapter CreateAdapter(string dbType, IReadOnlyDictionary<string, string> parameters, string prefix)
     {
-        string H(string key, string def) => p.GetValueOrDefault($"{prefix}{key}", def);
+        // 按前缀拼接参数键并从字典取值；键不存在时使用给定默认值
+        string GetParamValue(string key, string defaultValue) =>
+            parameters.GetValueOrDefault($"{prefix}{key}", defaultValue);
 
         switch (dbType.ToLowerInvariant())
         {
             case "mysql":
                 return new MySqlAdapter(new MySqlConnectionConfig
                 {
-                    DataSource = H("Host", "127.0.0.1"),
-                    Port = H("Port", "3306"),
-                    Database = H("Database", ""),
-                    User = H("User", ""),
-                    Password = H("Password", ""),
-                    Charset = H("Charset", "utf8mb4"),
+                    DataSource = GetParamValue("Host", "127.0.0.1"),
+                    Port = GetParamValue("Port", "3306"),
+                    Database = GetParamValue("Database", ""),
+                    User = GetParamValue("User", ""),
+                    Password = GetParamValue("Password", ""),
+                    Charset = GetParamValue("Charset", "utf8mb4"),
                 });
             case "sqlserver":
                 return new SqlServerAdapter(new SqlServerConnectionConfig
                 {
-                    DataSource = H("Host", "127.0.0.1"),
-                    Port = H("Port", "1433"),
-                    Database = H("Database", ""),
-                    User = H("User", ""),
-                    Password = H("Password", ""),
+                    DataSource = GetParamValue("Host", "127.0.0.1"),
+                    Port = GetParamValue("Port", "1433"),
+                    Database = GetParamValue("Database", ""),
+                    User = GetParamValue("User", ""),
+                    Password = GetParamValue("Password", ""),
                 });
             case "oracle":
                 return new OracleAdapter(new OracleConnectionConfig
                 {
-                    DataSource = H("Host", "127.0.0.1"),
-                    Port = H("Port", "1521"),
-                    Database = H("Database", ""),
-                    User = H("User", ""),
-                    Password = H("Password", ""),
-                    ServiceName = H("ServiceName", H("Database", "")),
+                    DataSource = GetParamValue("Host", "127.0.0.1"),
+                    Port = GetParamValue("Port", "1521"),
+                    Database = GetParamValue("Database", ""),
+                    User = GetParamValue("User", ""),
+                    Password = GetParamValue("Password", ""),
+                    ServiceName = GetParamValue("ServiceName", GetParamValue("Database", "")),
                 });
             case "sybase":
                 return new SybaseAdapter(new SybaseConnectionConfig
                 {
-                    DataSource = H("Host", "127.0.0.1"),
-                    Port = H("Port", "5000"),
-                    Database = H("Database", ""),
-                    User = H("User", ""),
-                    Password = H("Password", ""),
+                    DataSource = GetParamValue("Host", "127.0.0.1"),
+                    Port = GetParamValue("Port", "5000"),
+                    Database = GetParamValue("Database", ""),
+                    User = GetParamValue("User", ""),
+                    Password = GetParamValue("Password", ""),
                 });
             case "sqlite":
             default:
                 return new SqliteAdapter(new SqliteConnectionConfig
                 {
-                    DataSource = H("FilePath", "source.db"),
+                    DataSource = GetParamValue("FilePath", "source.db"),
                 });
         }
     }
