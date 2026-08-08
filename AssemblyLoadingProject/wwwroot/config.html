@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>配置与启动</title>
+<script src="/app.js"></script>
+</head>
+<body>
+<h1>配置与启动</h1>
+<p><a href="/index.html">列表</a> | <a href="/config.html">配置</a> | <a href="/status.html">状态</a></p>
+
+<div>
+    <label>选择 DLL：</label>
+    <select id="fileSel" onchange="loadConfig()"></select>
+    <button onclick="refreshList()">刷新 DLL 列表</button>
+    <span id="fileDesc" style="color:#666"></span>
+</div>
+<hr />
+
+<div id="configPanel" style="display:none">
+    <h3>配置</h3>
+    <table cellpadding="4" cellspacing="0">
+        <tr><td>启用调度：</td><td><input type="checkbox" id="enabled" /></td></tr>
+        <tr><td>执行间隔（秒）：</td><td><input type="number" id="interval" value="60" /></td></tr>
+        <tr><td>备注：</td><td><input type="text" id="notes" style="width:300px" /></td></tr>
+    </table>
+
+    <h4>执行参数（键值对）</h4>
+    <table id="paramTable" cellpadding="4" cellspacing="0" border="1" style="border-collapse:collapse">
+        <thead><tr><th>参数名</th><th>参数值</th><th></th></tr></thead>
+        <tbody></tbody>
+    </table>
+    <button onclick="addParam()">+ 添加参数</button>
+    <br /><br />
+
+    <button onclick="saveConfig()">保存并应用</button>
+    <button onclick="loadOnly()">仅加载</button>
+    <button onclick="runOnce()">立即执行</button>
+    <button onclick="unload()">卸载</button>
+    <span id="msg" style="margin-left:10px"></span>
+</div>
+
+<script>
+let files = [];
+
+async function refreshList() {
+    const data = await apiGet('/api/plugins');
+    files = data || [];
+    const sel = document.getElementById('fileSel');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">-- 选择插件 --</option>' +
+        files.map(f => '<option value="' + esc(f.assemblyFile) + '">' + esc(f.assemblyFile) + '</option>').join('');
+    if (prev) sel.value = prev;
+    if (sel.value) loadConfig();
+}
+
+async function loadConfig() {
+    const file = document.getElementById('fileSel').value;
+    const msg = document.getElementById('msg');
+    const desc = document.getElementById('fileDesc');
+    document.getElementById('configPanel').style.display = 'none';
+    msg.textContent = '';
+    if (!file) return;
+
+    try {
+        const cfg = await apiGet('/api/plugins/' + encodeURIComponent(file) + '/config');
+        document.getElementById('enabled').checked = cfg.enabled;
+        document.getElementById('interval').value = cfg.intervalSeconds || 60;
+        document.getElementById('notes').value = cfg.notes || '';
+
+        const tb = document.querySelector('#paramTable tbody');
+        tb.innerHTML = '';
+        const params = cfg.parameters || {};
+        for (const k in params) {
+            addParamRow(k, params[k]);
+        }
+        if (Object.keys(params).length === 0) addParamRow('', '');
+
+        // 显示描述
+        const st = files.find(f => f.assemblyFile.toLowerCase() === file.toLowerCase());
+        desc.textContent = st ? '（' + (st.description || '') + '）' : '';
+
+        document.getElementById('configPanel').style.display = 'block';
+    } catch (e) {
+        msg.style.color = 'red';
+        msg.textContent = '加载配置失败：' + e.message;
+    }
+}
+
+function addParam() {
+    addParamRow('', '');
+}
+
+function addParamRow(key, value) {
+    const tb = document.querySelector('#paramTable tbody');
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td><input type="text" class="pk" style="width:160px" value="' + esc(key) + '" /></td>' +
+        '<td><input type="text" class="pv" style="width:260px" value="' + esc(value) + '" /></td>' +
+        '<td><button onclick="this.closest(\'tr\').remove()">删</button></td>';
+    tb.appendChild(tr);
+}
+
+function collectParams() {
+    const params = {};
+    document.querySelectorAll('#paramTable tbody tr').forEach(tr => {
+        const k = tr.querySelector('.pk').value.trim();
+        const v = tr.querySelector('.pv').value;
+        if (k) params[k] = v;
+    });
+    return params;
+}
+
+async function doPost(path, body) {
+    const msg = document.getElementById('msg');
+    msg.style.color = '';
+    try {
+        const r = await apiPost(path, body);
+        msg.style.color = '#16a34a';
+        msg.textContent = (r && r.message) || '操作成功';
+        return r;
+    } catch (e) {
+        msg.style.color = 'red';
+        msg.textContent = '操作失败：' + e.message;
+        return null;
+    }
+}
+
+async function saveConfig() {
+    const file = document.getElementById('fileSel').value;
+    if (!file) return;
+    await doPost('/api/plugins/' + encodeURIComponent(file) + '/config', {
+        assemblyFile: file,
+        enabled: document.getElementById('enabled').checked,
+        intervalSeconds: parseInt(document.getElementById('interval').value) || 0,
+        notes: document.getElementById('notes').value,
+        parameters: collectParams()
+    });
+}
+
+async function loadOnly() {
+    const file = document.getElementById('fileSel').value;
+    if (!file) return;
+    await doPost('/api/plugins/' + encodeURIComponent(file) + '/load');
+}
+
+async function runOnce() {
+    const file = document.getElementById('fileSel').value;
+    if (!file) return;
+    await doPost('/api/plugins/' + encodeURIComponent(file) + '/run');
+}
+
+async function unload() {
+    const file = document.getElementById('fileSel').value;
+    if (!file) return;
+    await doPost('/api/plugins/' + encodeURIComponent(file) + '/unload');
+}
+
+refreshList();
+</script>
+</body>
+</html>

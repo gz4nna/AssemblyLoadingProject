@@ -1,0 +1,57 @@
+# ===== .NET 构建产物 =====
+[Bb]in/
+[Oo]bj/
+*.dll
+*.exe
+*.pdb
+*.cache
+*.nupkg
+*.snupkg
+*.user
+*.suo
+*.tmp
+
+# 生成的目标文件
+*.csproj.nuget.*
+*.csproj.FileListAbsolute.txt
+*.csproj.CoreCompileInputs.cache
+*.assets.cache
+*.project.nuget.cache
+*.genruntimeconfig.cache
+project.assets.json
+
+# ===== VS / Rider / 编辑器 =====
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.vshost.*
+
+# ===== 插件运行时输出（含业务插件编译产物，可能携带连接信息/凭据，不提交） =====
+**/Plugins/*.dll
+**/Plugins/*.json
+**/Plugins/*.so
+**/Plugins/*.a
+**/Plugins/runtimes/
+!**/Plugins/**/.gitkeep
+
+# ===== 运行时日志 / 临时文件 =====
+logs/
+*.log
+run_out.txt
+run_err.txt
+*.out.txt
+*.err.txt
+startup.log
+
+# ===== 数据库文件 / 配置 =====
+*.db
+*.sqlite
+*.db-journal
+
+# ===== 应用配置中的本地开发配置（可能含密钥，按需保留 appsettings.json） =====
+appsettings.Development.json
+appsettings.Production.json

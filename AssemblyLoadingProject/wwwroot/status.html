@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>运行状态</title>
+<script src="/app.js"></script>
+</head>
+<body>
+<h1>运行状态</h1>
+<p><a href="/index.html">列表</a> | <a href="/config.html">配置</a> | <a href="/status.html">状态</a></p>
+<p>自动刷新中（每 2 秒）。<span id="time"></span></p>
+<hr />
+
+<div id="panel"></div>
+
+<script>
+async function refresh() {
+    const panel = document.getElementById('panel');
+    document.getElementById('time').textContent = new Date().toLocaleTimeString();
+    try {
+        const data = await apiGet('/api/plugins');
+        if (!data || data.length === 0) {
+            panel.innerHTML = '<p>暂无插件。</p>';
+            return;
+        }
+        panel.innerHTML = data.map(p => renderPlugin(p)).join('');
+    } catch (e) {
+        panel.innerHTML = '<p style="color:red">加载失败：' + esc(e.message) + '</p>';
+    }
+}
+
+function renderPlugin(p) {
+    const lastOk = p.lastSuccess == null ? '—' : (p.lastSuccess ? '成功' : '失败');
+    const history = (p.executionHistory || []).map(h =>
+        '<tr><td>' + fmtTime(h.time) + '</td>' +
+        '<td style="color:' + (h.success ? '#16a34a' : '#dc2626') + '">' + (h.success ? '成功' : '失败') + '</td>' +
+        '<td>' + h.elapsedMs + ' ms</td>' +
+        '<td>' + (h.rowsAffected == null ? '—' : h.rowsAffected) + '</td>' +
+        '<td>' + esc(h.message) + '</td></tr>'
+    ).join('') || '<tr><td colspan="5">暂无</td></tr>';
+
+    // 近期日志（内存仅保留最近 50 条），更早的历史通过"加载完整历史"从磁盘读取
+    const recentLogs = (p.logs || []).map(l =>
+        '[' + fmtTime(l.time) + '][' + esc(l.level) + '] ' + esc(l.message)
+    ).join('\n') || '（暂无近期日志）';
+
+    return '<div style="border:1px solid #ccc;padding:10px;margin-bottom:10px">' +
+        '<h3 style="margin:0">' + esc(p.displayName) +
+        '  <span style="color:' + statusColor(p.status) + '">[' + statusText(p.status) + ']</span>' +
+        '  <span style="color:#666">' + esc(p.assemblyFile) + '</span></h3>' +
+        '<table cellpadding="3" cellspacing="0">' +
+        '<tr><td>状态说明：</td><td>' + esc(p.statusMessage) + '</td></tr>' +
+        '<tr><td>启用调度：</td><td>' + (p.enabled ? '是' : '否') + '</td></tr>' +
+        '<tr><td>下次执行：</td><td>' + fmtTime(p.nextRunAt) + '</td></tr>' +
+        '<tr><td>上次执行：</td><td>' + fmtTime(p.lastRunAt) + '（耗时 ' + p.lastElapsedMs + ' ms）</td></tr>' +
+        '<tr><td>上次结果：</td><td>' + lastOk + ' - ' + esc(p.lastMessage) + '</td></tr>' +
+        '<tr><td>成功/失败：</td><td><span style="color:#16a34a">✓ ' + p.successCount + '</span> / <span style="color:#dc2626">✗ ' + p.failCount + '</span></td></tr>' +
+        '</table>' +
+
+        '<h4>执行历史（汇总，最近 ' + (p.executionHistory || []).length + ' 次）</h4>' +
+        '<table border="1" cellpadding="3" cellspacing="0" style="border-collapse:collapse">' +
+        '<thead><tr><th>时间</th><th>结果</th><th>耗时</th><th>行数</th><th>消息</th></tr></thead>' +
+        '<tbody>' + history + '</tbody></table>' +
+
+        '<h4>近期日志（最近 ' + (p.logs || []).length + ' 条）' +
+        ' <button onclick="loadHistory(\'' + esc(p.assemblyFile) + '\', this)">加载完整历史</button></h4>' +
+        '<pre style="background:#111;color:#ccc;padding:8px;max-height:180px;overflow:auto;font-size:12px">' +
+        recentLogs + '</pre>' +
+        '<div class="historyBox" style="display:none;margin-top:6px">' +
+        '<pre style="background:#0f172a;color:#94a3b8;padding:8px;max-height:300px;overflow:auto;font-size:12px"></pre>' +
+        '</div>' +
+        '</div>';
+}
+
+// 从磁盘加载该插件的历史日志文件
+async function loadHistory(file, btn) {
+    const box = btn.closest('div').nextElementSibling;
+    const pre = box.querySelector('pre');
+    try {
+        const r = await apiGet('/api/plugins/' + encodeURIComponent(file) + '/history?lines=500');
+        pre.textContent = (r.lines && r.lines.length) ? r.lines.join('\n') : '（无历史日志）';
+        box.style.display = 'block';
+    } catch (e) {
+        pre.textContent = '加载失败：' + e.message;
+        box.style.display = 'block';
+    }
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

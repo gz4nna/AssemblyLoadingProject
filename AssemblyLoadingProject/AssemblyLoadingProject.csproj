@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      TransDataHelper：多数据库驱动封装类库（ADO.NET 统一接口）。
+      作为宿主与所有插件共享的依赖：宿主引用它，插件也引用它（Private=false 不复制），
+      从而在插件的 AssemblyLoadContext 解析时回退到宿主已加载的这份拷贝，避免重复携带。
+    -->
+    <ProjectReference Include="..\..\DataTableCopyScripts\TransDataHelper\TransDataHelper\TransDataHelper.csproj" />
+  </ItemGroup>
+
+</Project>

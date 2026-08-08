@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>DLL 列表</title>
+<script src="/app.js"></script>
+</head>
+<body>
+<h1>插件 DLL 列表</h1>
+<p><a href="/index.html">列表</a> | <a href="/config.html">配置</a> | <a href="/status.html">状态</a></p>
+<button onclick="refresh()">重新扫描</button>
+<hr />
+<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
+<thead>
+<tr><th>DLL 文件</th><th>名称</th><th>版本</th><th>状态</th><th>说明</th></tr>
+</thead>
+<tbody id="rows"></tbody>
+</table>
+
+<script>
+async function refresh() {
+    const rows = document.getElementById('rows');
+    rows.innerHTML = '<tr><td colspan="5">加载中...</td></tr>';
+    try {
+        const data = await apiGet('/api/plugins');
+        if (!data || data.length === 0) {
+            rows.innerHTML = '<tr><td colspan="5">未扫描到任何 DLL，请点击"重新扫描"</td></tr>';
+            return;
+        }
+        rows.innerHTML = data.map(p => {
+            const state = p.assemblyFile + '|' + encodeURIComponent(p.assemblyFile);
+            return '<tr>' +
+                '<td>' + esc(p.assemblyFile) + '</td>' +
+                '<td>' + esc(p.displayName) + '</td>' +
+                '<td>' + esc(p.version) + '</td>' +
+                '<td style="color:' + statusColor(p.status) + '">' + statusText(p.status) + '（' + esc(p.statusMessage) + '）</td>' +
+                '<td>' + esc(p.description) + '</td>' +
+                '</tr>';
+        }).join('');
+    } catch (e) {
+        rows.innerHTML = '<tr><td colspan="5" style="color:red">加载失败：' + esc(e.message) + '</td></tr>';
+    }
+}
+refresh();
+</script>
+</body>
+</html>

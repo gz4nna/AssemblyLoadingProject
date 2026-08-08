@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <!-- 输出到宿主项目运行时 Plugins 目录，实现"编译即放入" -->
+    <OutputPath>..\..\AssemblyLoadingProject\bin\Debug\net10.0\Plugins\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      引用宿主项目以获取 IDataTransferService 契约接口。
+      Private=false 表示不把宿主程序集复制到插件输出目录，
+      这样插件在独立 AssemblyLoadContext 中解析契约接口时会回退到
+      AssemblyLoadContext.Default（宿主已加载的程序集），
+      从而保证"接口类型同一性"，这是热插拔成立的关键。
+    -->
+    <ProjectReference Include="..\..\AssemblyLoadingProject\AssemblyLoadingProject.csproj">
+      <Private>false</Private>
+      <!--
+        仅编译期引用宿主契约；ExcludeAssets=runtime 阻止宿主及其传递依赖
+        （含 TransDataHelper 自带的驱动）复制到插件输出，运行期由宿主共享提供。
+      -->
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+
+    <!--
+      引用 TransDataHelper 多数据库驱动封装库。
+      同样使用 Private=false：不把 TransDataHelper.dll 及其驱动依赖复制到插件目录，
+      而是复用宿主已加载的那份（通过 ALC 的 Default 回退解析）。
+      这样业务插件携带的所有 TransDataHelper 相关文件都无需重复，由宿主统一提供。
+    -->
+    <ProjectReference Include="..\..\..\DataTableCopyScripts\TransDataHelper\TransDataHelper\TransDataHelper.csproj">
+      <Private>false</Private>
+      <!--
+        仅编译期引用 TransDataHelper；ExcludeAssets=runtime 阻止其自带的驱动依赖
+        （MySqlConnector/Oracle/AseClient 等）被复制到插件输出目录，
+        运行期统一由宿主通过 AssemblyLoadContext.Default 共享提供，避免重复携带。
+      -->
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+  </ItemGroup>
+
+  <!--
+    清理插件输出目录：移除跨平台原生运行库（Linux/macOS/静态库等冗余文件）。
+    保留 Windows 的 e_sqlite3.dll（SQLite 演示所需）。这样插件目录只保留自身 DLL 与必要原生文件。
+  -->
+  <Target Name="CleanupPluginOutput" AfterTargets="Build">
+    <ItemGroup>
+      <_RemoveNative Include="$(OutDir)**\*.so" />
+      <_RemoveNative Include="$(OutDir)**\*.dylib" />
+      <_RemoveNative Include="$(OutDir)**\*.a" />
+      <_RemoveNative Include="$(OutDir)**\runtimes\**" />
+    </ItemGroup>
+    <Delete Files="@(_RemoveNative)" />
+  </Target>
+
+</Project>
