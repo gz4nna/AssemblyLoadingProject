@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<!--
+  settings.html —— 全局告警/通知设置页
+  功能：配置失败告警所需信息（邮件服务地址/收件人、企业微信推送地址/账号等）。
+  这些信息（含内网 IP、个人邮箱、账号）保存在 SQLite，不写入代码，避免提交到远端仓库。
+  开关：Alert:EmailEnabled / Alert:WeChatEnabled 控制是否启用对应通道。
+-->
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>告警设置</title>
+<script src="/app.js"></script>
+</head>
+<body>
+<!-- 页面顶部导航 -->
+<p><a href="/index.html">列表</a> | <a href="/config.html">配置</a> | <a href="/status.html">状态</a> | <a href="/settings.html">告警设置</a></p>
+
+<h1>告警 / 通知设置</h1>
+<p style="color:#666">以下敏感信息保存在 SQLite（plugins.db），不会写入代码。请按需填写后保存。</p>
+<hr />
+
+<div>
+    <h3>邮件告警</h3>
+    <table cellpadding="4" cellspacing="0">
+        <tr><td>启用邮件：</td><td><input type="checkbox" id="emailEnabled" /></td></tr>
+        <tr><td>邮件服务地址：</td><td><input type="text" id="emailApi" style="width:380px" placeholder="http://<地址>:<端口>/send" /></td></tr>
+        <tr><td>收件邮箱：</td><td><input type="text" id="emailTo" style="width:380px" placeholder="your@example.com" /></td></tr>
+    </table>
+
+    <h3>企业微信推送</h3>
+    <table cellpadding="4" cellspacing="0">
+        <tr><td>启用推送：</td><td><input type="checkbox" id="wechatEnabled" /></td></tr>
+        <tr><td>推送服务地址：</td><td><input type="text" id="pushUrl" style="width:380px" placeholder="http://<地址>:<端口>/api/messagepush" /></td></tr>
+        <tr><td>OA 账号：</td><td><input type="text" id="oaAccount" style="width:380px" placeholder="OA账号" /></td></tr>
+        <tr><td>跳转地址：</td><td><input type="text" id="targetUrl" style="width:380px" placeholder="http://<业务页面>" /></td></tr>
+    </table>
+
+    <br />
+    <button onclick="loadSettings()">重新加载</button>
+    <button onclick="saveSettings()">保存设置</button>
+    <span id="msg" style="margin-left:10px"></span>
+</div>
+
+<script>
+/** 从后端加载告警设置并回填表单。 */
+async function loadSettings() {
+    const msg = document.getElementById('msg');
+    try {
+        const s = await apiGet('/api/settings');
+        document.getElementById('emailEnabled').checked = (s['Alert:EmailEnabled'] === 'true');
+        document.getElementById('emailApi').value = s['Alert:EmailApi'] || '';
+        document.getElementById('emailTo').value = s['Alert:EmailTo'] || '';
+        document.getElementById('wechatEnabled').checked = (s['Alert:WeChatEnabled'] === 'true');
+        document.getElementById('pushUrl').value = s['Alert:PushUrl'] || '';
+        document.getElementById('oaAccount').value = s['Alert:OaAccount'] || '';
+        document.getElementById('targetUrl').value = s['Alert:TargetUrl'] || '';
+        msg.textContent = '';
+    } catch (e) {
+        msg.style.color = 'red';
+        msg.textContent = '加载失败：' + e.message;
+    }
+}
+
+/** 收集并保存告警设置。 */
+async function saveSettings() {
+    const msg = document.getElementById('msg');
+    const settings = {
+        'Alert:EmailEnabled': document.getElementById('emailEnabled').checked ? 'true' : 'false',
+        'Alert:EmailApi': document.getElementById('emailApi').value.trim(),
+        'Alert:EmailTo': document.getElementById('emailTo').value.trim(),
+        'Alert:WeChatEnabled': document.getElementById('wechatEnabled').checked ? 'true' : 'false',
+        'Alert:PushUrl': document.getElementById('pushUrl').value.trim(),
+        'Alert:OaAccount': document.getElementById('oaAccount').value.trim(),
+        'Alert:TargetUrl': document.getElementById('targetUrl').value.trim()
+    };
+    try {
+        const r = await apiPost('/api/settings', settings);
+        msg.style.color = '#16a34a';
+        msg.textContent = (r && r.message) || '保存成功';
+    } catch (e) {
+        msg.style.color = 'red';
+        msg.textContent = '保存失败：' + e.message;
+    }
+}
+
+loadSettings();
+</script>
+</body>
+</html>

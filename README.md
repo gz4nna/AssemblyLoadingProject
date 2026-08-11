@@ -66,9 +66,16 @@ public interface IDataTransferService
    - **`/`（列表页）**：查看扫描到的 DLL 与状态，可"重新扫描"。
    - **`/config.html`（配置页）**：选择 DLL → 编辑参数（键值对）、间隔、备注 → "保存并应用 / 仅加载 / 立即执行 / 卸载"。
    - **`/status.html`（状态页）**：每 2 秒实时刷新运行状态、执行历史、近期日志，并可"加载完整历史"。
-4. **配置持久化**：前端保存的**启用状态、间隔、参数、备注**实时写入 `Plugins/plugins.config.json`；
-   宿主重启后按 **扫描 → 默认配置 → 读 JSON 覆盖 → `enabled=true` 自动加载调度** 恢复。
+   - **`/settings.html`（告警设置页）**：配置失败告警的邮件/企业微信通道（敏感信息存 SQLite）。
+4. **配置持久化**：前端保存的**启用状态、调度条件、参数、备注**实时持久化到 **`Plugins/plugins.db`（SQLite）**，
+   宿主重启后按 **扫描 → 默认配置 → 读存储覆盖 → `enabled=true` 自动加载调度** 恢复（SQLite 不可用时自动降级到 JSON）。
 5. **更新/热替换**：替换 DLL 文件后，重新扫描检测到更新并自动重载（无需重启宿主）。
+
+### 失败告警（邮件 + 企业微信）
+- 插件执行失败（返回失败、抛异常、超时/取消）时，宿主统一捕获并触发**失败告警**。
+- 告警通道与敏感信息（内网邮件地址、收件邮箱、企业微信推送地址、OA 账号等）**不硬编码**，
+  通过 `/settings.html` 配置并存入 **SQLite**（`AppSettings` 表），避免提交到远端仓库。
+- 参考实现：邮件（`email_service.py` 的 POST /send）、企业微信（`AttendInfoPush` 的 POST /api/messagepush）。
 
 ### 日志轻量化（避免长时间运行负担）
 - **近期日志**：内存仅保留最近 50 条，状态页直接展示。
@@ -158,13 +165,14 @@ public sealed class MySyncPlugin : DataTransferPluginBase
 - **TransDataHelper 作为宿主共享依赖**：插件与宿主共用同一份 `TransDataHelper`，避免重复携带驱动文件，同时保证多数据库操作契约统一。
 
 ### 可进一步改进（生产化建议）
-1. **配置持久化（已实现）**：当前配置已通过 `PluginConfigStore` 持久化为 `Plugins/plugins.config.json`。可选增强：迁移到 SQLite，便于并发读写与查询。
-2. **Cron 支持（已实现）**：支持精确时间调度（`Cronos`）。可选增强：增加"失败退避重试"与告警（邮件/企业微信）通知。
-3. **失败告警（可增强）**：宿主已统一捕获插件异常（插件不做内部处理）。可选增强：失败退避重试、邮件/企业微信通知（参考 email_service.py / AttendInfoPush 的推送方式）。
-4. **真实数据同步**：示例插件默认演示 SQLite→SQLite；真实库只需在插件中把 `SourceDbType/TargetDbType` 改为 MySql/Oracle/Sybase，并配好连接参数。注意 `TransDataHelper` 的 `OracleAdapter` 禁止写入（主库保护），且 Sybase 走纯文本拼接。
-5. **插件依赖管理**：已通过"宿主共享 TransDataHelper"降低重复；如插件有自身私有第三方依赖，可放入插件目录（`Resolving` 事件会先查插件目录）。
-6. **安全与隔离**：插件代码可完全访问宿主进程。生产环境建议：签名校验、进程级沙箱（如宿主进程 + 插件子进程通过 IPC 通信），或至少对上传 DLL 做白名单。
-7. **托管为 Windows 服务 / Linux systemd**：作为后台常驻服务运行，配合 `Microsoft.Extensions.Hosting` 的 `Host` 实现（当前已内嵌调度循环，可平滑迁移）。
+1. **配置持久化（已实现）**：配置通过 `PluginConfigStore` 持久化为 SQLite（`plugins.db`），SQLite 不可用时自动降级到 JSON。
+2. **Cron 支持（已实现）**：支持精确时间调度（`Cronos`）。
+3. **失败告警（已实现）**：宿主统一捕获插件异常，失败时通过邮件/企业微信告警（参考 email_service.py / AttendInfoPush），敏感信息存 SQLite。
+4. **失败退避重试**：当前失败仅标记并告警，未做自动退避重试。如需可在宿主扩展连续失败 N 次后暂停或指数退避。
+5. **真实数据同步**：示例插件默认演示 SQLite→SQLite；真实库只需在插件中把 `SourceDbType/TargetDbType` 改为 MySql/Oracle/Sybase，并配好连接参数。注意 `TransDataHelper` 的 `OracleAdapter` 禁止写入（主库保护），且 Sybase 走纯文本拼接。
+6. **插件依赖管理**：已通过"宿主共享 TransDataHelper"降低重复；如插件有自身私有第三方依赖，可放入插件目录（`Resolving` 事件会先查插件目录）。
+7. **安全与隔离**：插件代码可完全访问宿主进程。生产环境建议：签名校验、进程级沙箱（如宿主进程 + 插件子进程通过 IPC 通信），或至少对上传 DLL 做白名单。
+8. **托管为 Windows 服务 / Linux systemd**：作为后台常驻服务运行，配合 `Microsoft.Extensions.Hosting` 的 `Host` 实现（当前已内嵌调度循环，可平滑迁移）。
 
 ## 六、项目结构
 
@@ -179,7 +187,10 @@ AssemblyLoadingProject/
 │  ├─ PluginHostService.cs                        单例宿主：调度/状态/日志
 │  ├─ PluginHostedService.cs                      标准 IHostedService 生命周期托管
 │  ├─ PluginConfig.cs                             插件配置模型
-│  ├─ PluginConfigStore.cs                        配置 JSON 持久化存储
+│  ├─ PluginConfigStore.cs                        配置存储门面（SQLite 主用 + JSON 降级）
+│  ├─ PluginConfigSqliteStore.cs                 配置 SQLite 存储
+│  ├─ AppSettingsStore.cs                         全局告警设置（SQLite，敏感信息不入代码）
+│  ├─ AlertService.cs                             失败告警（邮件 + 企业微信）
 │  ├─ ScheduleConfig.cs                          调度配置模型（四种模式）
 │  ├─ ScheduleEvaluator.cs                       调度评估：计算下次执行时间
 │  ├─ PluginRunState.cs                           运行状态与日志条目/执行历史
@@ -188,10 +199,13 @@ AssemblyLoadingProject/
 │  ├─ index.html                                  DLL 列表页
 │  ├─ config.html                                 配置与启动页
 │  ├─ status.html                                 运行状态页（实时刷新 + 历史日志）
+│  ├─ settings.html                               告警/通知设置页
 │  ├─ app.js                                      前端通用 AJAX/格式化工具
 │  └─ app.css                                     基础样式
 ├─ Program.cs                                     入口：Minimal API + 静态文件
 ├─ Properties/launchSettings.json                 本地调试启动配置
 ├─ appsettings.json                               应用配置（插件目录等）
-└─ SamplePlugins/SampleSqlSyncPlugin/             示例插件(SQLite→SQLite，基于 TransDataHelper)
+└─ SamplePlugins/
+   ├─ SampleSqlSyncPlugin/                       示例插件(SQLite→SQLite，基于 TransDataHelper)
+   └─ SampleThrowPlugin/                         测试插件(直接抛异常，用于验证失败告警)
 ```

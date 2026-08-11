@@ -36,7 +36,13 @@ project.assets.json
 **/Plugins/*.so
 **/Plugins/*.a
 **/Plugins/runtimes/
+**/Plugins/logs/
 !**/Plugins/**/.gitkeep
+
+# ===== 插件配置库（SQLite：含各插件连接参数/告警邮箱账号等敏感信息，不提交） =====
+**/Plugins/*.db
+**/Plugins/*.db-journal
+**/Plugins/*.sqlite
 
 # ===== 运行时日志 / 临时文件 =====
 logs/

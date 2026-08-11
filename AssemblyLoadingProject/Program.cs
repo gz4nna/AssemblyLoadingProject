@@ -11,8 +11,15 @@ namespace AssemblyLoadingProject
             // 插件宿主服务：单例，负责扫描/加载/调度/状态跟踪
             var pluginsDir = builder.Configuration["Plugins:Directory"] ?? "Plugins";
             var pluginsPath = Path.Combine(AppContext.BaseDirectory, pluginsDir);
+            builder.Services.AddSingleton(_ => new AppSettingsStore(pluginsPath));
             builder.Services.AddSingleton(sp =>
-                new PluginHostService(sp.GetRequiredService<ILogger<PluginHostService>>(), pluginsPath));
+                new AlertService(sp.GetRequiredService<AppSettingsStore>(), sp.GetRequiredService<ILogger<AlertService>>()));
+            builder.Services.AddSingleton(sp =>
+                new PluginHostService(
+                    sp.GetRequiredService<ILogger<PluginHostService>>(),
+                    pluginsPath,
+                    sp.GetRequiredService<AppSettingsStore>(),
+                    sp.GetRequiredService<AlertService>()));
             builder.Services.AddHostedService<PluginHostedService>();
 
             var app = builder.Build();
@@ -105,6 +112,17 @@ namespace AssemblyLoadingProject
                 cfg.Enabled = req.Enabled;
                 plugins.UpdateConfig(file, cfg);
                 return Results.Ok(new { ok = true, enabled = cfg.Enabled });
+            });
+
+            // ---- 全局告警设置（存于 SQLite，避免硬编码敏感信息） ----
+            // 读取全部告警/通知设置
+            app.MapGet("/api/settings", () => Results.Ok(plugins.GetAppSettings()));
+
+            // 保存告警/通知设置（覆盖式写入）
+            app.MapPost("/api/settings", (Dictionary<string, string> settings) =>
+            {
+                plugins.AppSettings.Set(settings);
+                return Results.Ok(new { ok = true, message = "设置已保存" });
             });
         }
 

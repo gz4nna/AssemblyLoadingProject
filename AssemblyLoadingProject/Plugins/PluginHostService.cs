@@ -20,6 +20,8 @@ public sealed class PluginHostService : IDisposable
     private readonly PluginAssemblyLoader _loader;
     private readonly PluginConfigStore _configStore;
     private readonly PluginLogStore _logStore;
+    private readonly AlertService _alertService;
+    private readonly AppSettingsStore _appSettings;
     private readonly object _lock = new();
 
     // assemblyFile -> 配置（内存副本；启用状态/参数会持久化到 JSON）
@@ -30,13 +32,25 @@ public sealed class PluginHostService : IDisposable
     private bool _running;
     private DateTimeOffset _lastScan = DateTimeOffset.MinValue;
 
-    public PluginHostService(ILogger<PluginHostService> logger, string pluginsDirectory)
+    public PluginHostService(
+        ILogger<PluginHostService> logger,
+        string pluginsDirectory,
+        AppSettingsStore appSettings,
+        AlertService alertService)
     {
         _logger = logger;
         _loader = new PluginAssemblyLoader(logger, pluginsDirectory);
         _configStore = new PluginConfigStore(pluginsDirectory);
         _logStore = new PluginLogStore(pluginsDirectory);
+        _appSettings = appSettings;
+        _alertService = alertService;
     }
+
+    /// <summary>全局应用设置（告警地址、邮箱等，存于 SQLite）。</summary>
+    public AppSettingsStore AppSettings => _appSettings;
+
+    /// <summary>全局应用设置访问（供前端读写告警配置）。</summary>
+    public Dictionary<string, string> GetAppSettings() => _appSettings.LoadAll();
 
     /// <summary>日志存储目录。</summary>
     public string LogDirectory => _logStore.LogDirectory;
@@ -404,6 +418,8 @@ public sealed class PluginHostService : IDisposable
                 state.StatusMessage = $"执行失败：{result.Message}";
                 LogToState(slot.AssemblyFile, $"执行失败：{result.Message}", LogLevel.Error);
                 state.AddExecutionRecord(DateTimeOffset.Now, false, sw.ElapsedMilliseconds, result.RowsAffected, result.Message);
+                // 失败告警：发送邮件/企业微信（按全局设置开关）
+                await _alertService.SendFailureAlertAsync(slot.AssemblyFile, result.Message ?? "执行失败", CancellationToken.None);
             }
 
             // 依据调度配置计算下次执行时间
@@ -422,6 +438,7 @@ public sealed class PluginHostService : IDisposable
             state.NextRunAt = ComputeNextRunAt(config, DateTimeOffset.UtcNow);
             LogToState(slot.AssemblyFile, "执行被取消或超时", LogLevel.Warn);
             state.AddExecutionRecord(DateTimeOffset.Now, false, sw.ElapsedMilliseconds, null, "执行被取消或超时");
+            await _alertService.SendFailureAlertAsync(slot.AssemblyFile, "执行被取消或超时", CancellationToken.None);
             return TransferResult.Fail("执行被取消或超时");
         }
         catch (Exception ex)
@@ -435,6 +452,7 @@ public sealed class PluginHostService : IDisposable
             state.NextRunAt = ComputeNextRunAt(config, DateTimeOffset.UtcNow);
             LogToState(slot.AssemblyFile, $"异常：{ex}", LogLevel.Error);
             state.AddExecutionRecord(DateTimeOffset.Now, false, sw.ElapsedMilliseconds, null, ex.Message);
+            await _alertService.SendFailureAlertAsync(slot.AssemblyFile, ex.Message, CancellationToken.None);
             return TransferResult.Fail(ex.Message);
         }
     }

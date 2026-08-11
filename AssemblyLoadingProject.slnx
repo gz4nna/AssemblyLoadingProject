@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="AssemblyLoadingProject/AssemblyLoadingProject.csproj" />
   <Project Path="SamplePlugins/SampleSqlSyncPlugin/SampleSqlSyncPlugin.csproj" />
+  <Project Path="SamplePlugins/SampleThrowPlugin/SampleThrowPlugin.csproj" />
 </Solution>
