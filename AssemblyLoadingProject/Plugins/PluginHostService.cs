@@ -159,6 +159,7 @@ public sealed class PluginHostService : IDisposable
                 cfg.IntervalSeconds = saved.IntervalSeconds;
                 cfg.Cron = saved.Cron;
                 cfg.Schedule = saved.Schedule;
+                cfg.Retry = saved.Retry;
                 cfg.Parameters = saved.Parameters ?? new Dictionary<string, string>();
                 cfg.Notes = saved.Notes;
             }
@@ -221,6 +222,34 @@ public sealed class PluginHostService : IDisposable
         }
         return ScheduleEvaluator.GetNextRunAt(schedule, from)
             ?? from.AddSeconds(Math.Max(config.IntervalSeconds, 1));
+    }
+
+    /// <summary>
+    /// 执行失败后处理重试：按 <see cref="RetryConfig"/> 决定是安排一次重试，还是回到正常调度。
+    /// </summary>
+    /// <param name="state">插件运行状态（内部会维护 RetryCount）。</param>
+    /// <param name="config">插件配置（含 Retry）。</param>
+    /// <param name="now">当前时间。</param>
+    /// <returns>下一次执行时间。</returns>
+    private DateTimeOffset HandleRetryOnFailure(PluginRunState state, PluginConfig config, DateTimeOffset now)
+    {
+        var retry = config.Retry;
+        state.RetryCount++; // 本次失败计数（含首次失败，若 retry 为 null 也会 ++，但 next 走正常调度）
+
+        // 有重试策略且仍允许 → 安排重试
+        if (retry != null && retry.Strategy != RetryStrategy.None && RetryPolicy.CanRetry(retry, state.RetryCount))
+        {
+            var retryAt = RetryPolicy.GetNextRetryAt(retry, state.RetryCount, now);
+            if (retryAt.HasValue)
+            {
+                state.StatusMessage += $"（第 {state.RetryCount} 次失败，{retry.Strategy} 重试）";
+                return retryAt.Value;
+            }
+        }
+
+        // 放弃重试：清零计数，回到正常调度
+        state.RetryCount = 0;
+        return ComputeNextRunAt(config, now);
     }
 
     /// <summary>
@@ -404,12 +433,15 @@ public sealed class PluginHostService : IDisposable
             if (result.Success)
             {
                 state.SuccessCount++;
+                state.RetryCount = 0; // 成功清零重试计数
                 state.Status = PluginStatus.Loaded;
                 state.StatusMessage = result.RowsAffected.HasValue
                     ? $"执行成功，影响 {result.RowsAffected} 行"
                     : $"执行成功：{result.Message}";
                 LogToState(slot.AssemblyFile, $"执行成功：{result.Message}（耗时 {sw.ElapsedMilliseconds}ms）", LogLevel.Info);
                 state.AddExecutionRecord(DateTimeOffset.Now, true, sw.ElapsedMilliseconds, result.RowsAffected, result.Message);
+                // 成功 → 按正常调度计算下次执行时间
+                state.NextRunAt = ComputeNextRunAt(config, DateTimeOffset.UtcNow);
             }
             else
             {
@@ -418,12 +450,11 @@ public sealed class PluginHostService : IDisposable
                 state.StatusMessage = $"执行失败：{result.Message}";
                 LogToState(slot.AssemblyFile, $"执行失败：{result.Message}", LogLevel.Error);
                 state.AddExecutionRecord(DateTimeOffset.Now, false, sw.ElapsedMilliseconds, result.RowsAffected, result.Message);
+                // 失败 → 按重试策略安排重试（否则回到正常调度）
+                state.NextRunAt = HandleRetryOnFailure(state, config, DateTimeOffset.UtcNow);
                 // 失败告警：发送邮件/企业微信（按全局设置开关）
                 await _alertService.SendFailureAlertAsync(slot.AssemblyFile, result.Message ?? "执行失败", CancellationToken.None);
             }
-
-            // 依据调度配置计算下次执行时间
-            state.NextRunAt = ComputeNextRunAt(config, DateTimeOffset.UtcNow);
 
             return result;
         }
@@ -435,7 +466,7 @@ public sealed class PluginHostService : IDisposable
             state.StatusMessage = "执行被取消或超时";
             state.LastElapsedMs = sw.ElapsedMilliseconds;
             state.LastSuccess = false;
-            state.NextRunAt = ComputeNextRunAt(config, DateTimeOffset.UtcNow);
+            state.NextRunAt = HandleRetryOnFailure(state, config, DateTimeOffset.UtcNow);
             LogToState(slot.AssemblyFile, "执行被取消或超时", LogLevel.Warn);
             state.AddExecutionRecord(DateTimeOffset.Now, false, sw.ElapsedMilliseconds, null, "执行被取消或超时");
             await _alertService.SendFailureAlertAsync(slot.AssemblyFile, "执行被取消或超时", CancellationToken.None);
@@ -449,7 +480,7 @@ public sealed class PluginHostService : IDisposable
             state.StatusMessage = $"异常：{ex.Message}";
             state.LastElapsedMs = sw.ElapsedMilliseconds;
             state.LastSuccess = false;
-            state.NextRunAt = ComputeNextRunAt(config, DateTimeOffset.UtcNow);
+            state.NextRunAt = HandleRetryOnFailure(state, config, DateTimeOffset.UtcNow);
             LogToState(slot.AssemblyFile, $"异常：{ex}", LogLevel.Error);
             state.AddExecutionRecord(DateTimeOffset.Now, false, sw.ElapsedMilliseconds, null, ex.Message);
             await _alertService.SendFailureAlertAsync(slot.AssemblyFile, ex.Message, CancellationToken.None);

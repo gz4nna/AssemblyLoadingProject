@@ -74,6 +74,7 @@ function renderPlugin(p) {
         '<tr><td>上次执行：</td><td>' + fmtTime(p.lastRunAt) + '（耗时 ' + p.lastElapsedMs + ' ms）</td></tr>' +
         '<tr><td>上次结果：</td><td>' + lastOk + ' - ' + esc(p.lastMessage) + '</td></tr>' +
         '<tr><td>成功/失败：</td><td><span style="color:#16a34a">✓ ' + p.successCount + '</span> / <span style="color:#dc2626">✗ ' + p.failCount + '</span></td></tr>' +
+        '<tr><td>当前重试：</td><td>' + (p.retryCount || 0) + ' 次' + '</td></tr>' +
         '</table>' +
 
         '<h4>执行历史（汇总，最近 ' + (p.executionHistory || []).length + ' 次）</h4>' +

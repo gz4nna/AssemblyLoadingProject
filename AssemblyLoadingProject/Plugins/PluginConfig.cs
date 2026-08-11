@@ -31,6 +31,9 @@ public sealed class PluginConfig
     /// </summary>
     public string? Cron { get; set; }
 
+    /// <summary>失败重试配置（失败时按策略安排重试，见 <see cref="RetryConfig"/>）。</summary>
+    public RetryConfig? Retry { get; set; }
+
     /// <summary>执行时传给插件的参数键值对（由前端编辑）。</summary>
     public Dictionary<string, string> Parameters { get; set; } = new();
 

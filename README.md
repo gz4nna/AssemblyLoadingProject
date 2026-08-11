@@ -77,6 +77,15 @@ public interface IDataTransferService
   通过 `/settings.html` 配置并存入 **SQLite**（`AppSettings` 表），避免提交到远端仓库。
 - 参考实现：邮件（`email_service.py` 的 POST /send）、企业微信（`AttendInfoPush` 的 POST /api/messagepush）。
 
+### 失败重试策略（退避 / 固定间隔 / 指定次数）
+- 插件失败后，除告警外可按配置的**重试策略**安排下一次重试（在 `/config.html` 的"失败重试"中设置）：
+  - **不重试**：失败后回到正常调度。
+  - **固定间隔重试**：每隔固定秒数重试一次（可一直重试直到成功或禁用）。
+  - **指数退避重试**：第 n 次失败延迟 = 基础间隔 × 退避因子^(n-1)，达到最大次数后停止。
+  - **指定次数重试**：用较短间隔快速连续重试指定次数，次数用尽后回到正常调度。
+- 重试与告警：**每次失败都会触发告警**；成功执行后重试计数自动清零。
+- 状态页会显示"当前重试"次数，便于观察退避/重试进度。
+
 ### 日志轻量化（避免长时间运行负担）
 - **近期日志**：内存仅保留最近 50 条，状态页直接展示。
 - **历史日志**：每条日志同时落盘到 `Plugins/logs/<插件名>.log`（自动轮转，超 2MB 归档），
@@ -168,7 +177,7 @@ public sealed class MySyncPlugin : DataTransferPluginBase
 1. **配置持久化（已实现）**：配置通过 `PluginConfigStore` 持久化为 SQLite（`plugins.db`），SQLite 不可用时自动降级到 JSON。
 2. **Cron 支持（已实现）**：支持精确时间调度（`Cronos`）。
 3. **失败告警（已实现）**：宿主统一捕获插件异常，失败时通过邮件/企业微信告警（参考 email_service.py / AttendInfoPush），敏感信息存 SQLite。
-4. **失败退避重试**：当前失败仅标记并告警，未做自动退避重试。如需可在宿主扩展连续失败 N 次后暂停或指数退避。
+4. **失败退避重试（已实现）**：支持固定间隔、指数退避、指定次数三种重试策略，失败时自动按策略重试并告警。
 5. **真实数据同步**：示例插件默认演示 SQLite→SQLite；真实库只需在插件中把 `SourceDbType/TargetDbType` 改为 MySql/Oracle/Sybase，并配好连接参数。注意 `TransDataHelper` 的 `OracleAdapter` 禁止写入（主库保护），且 Sybase 走纯文本拼接。
 6. **插件依赖管理**：已通过"宿主共享 TransDataHelper"降低重复；如插件有自身私有第三方依赖，可放入插件目录（`Resolving` 事件会先查插件目录）。
 7. **安全与隔离**：插件代码可完全访问宿主进程。生产环境建议：签名校验、进程级沙箱（如宿主进程 + 插件子进程通过 IPC 通信），或至少对上传 DLL 做白名单。
@@ -193,6 +202,8 @@ AssemblyLoadingProject/
 │  ├─ AlertService.cs                             失败告警（邮件 + 企业微信）
 │  ├─ ScheduleConfig.cs                          调度配置模型（四种模式）
 │  ├─ ScheduleEvaluator.cs                       调度评估：计算下次执行时间
+│  ├─ RetryConfig.cs                             失败重试配置模型
+│  ├─ RetryPolicy.cs                             重试策略计算（指数退避等）
 │  ├─ PluginRunState.cs                           运行状态与日志条目/执行历史
 │  └─ PluginLogStore.cs                           日志落盘（近期内存 + 历史文件轮转）
 ├─ wwwroot/                                       纯 HTML 前端（无 Razor）

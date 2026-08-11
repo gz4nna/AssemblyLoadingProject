@@ -80,6 +80,25 @@
         </tr>
     </table>
 
+    <!-- 失败重试策略 -->
+    <h4>失败重试</h4>
+    <table cellpadding="4" cellspacing="0">
+        <tr>
+            <td>策略：</td>
+            <td>
+                <select id="retryStrategy" onchange="onRetryChange()">
+                    <option value="0">不重试</option>
+                    <option value="1">固定间隔重试</option>
+                    <option value="2">指数退避重试</option>
+                    <option value="3">指定次数重试</option>
+                </select>
+            </td>
+        </tr>
+        <tr id="rowRetryInterval"><td>重试间隔（秒）：</td><td><input type="number" id="retryInterval" value="60" /></td></tr>
+        <tr id="rowMaxRetry"><td>最大重试次数：</td><td><input type="number" id="maxRetry" value="3" /></td></tr>
+        <tr id="rowBackoffFactor" style="display:none"><td>退避因子：</td><td><input type="number" id="backoffFactor" value="2" step="0.5" /></td></tr>
+    </table>
+
     <h4>执行参数（键值对）</h4>
     <!-- 参数表：可动态增删行；空参数名会被忽略 -->
     <table id="paramTable" cellpadding="4" cellspacing="0" border="1" style="border-collapse:collapse">
@@ -146,6 +165,15 @@ async function loadConfig() {
         const times = (s.times && s.times.length) ? s.times : (mode == 2 ? [''] : []);
         times.forEach(t => addTimeRow(t));
         onSchedModeChange();
+
+        // 回填失败重试配置
+        const r = cfg.retry || {};
+        const rs = (r.strategy === undefined || r.strategy === null) ? 0 : r.strategy;
+        document.getElementById('retryStrategy').value = String(rs);
+        document.getElementById('retryInterval').value = r.retryIntervalSeconds || 60;
+        document.getElementById('maxRetry').value = r.maxRetryCount || 3;
+        document.getElementById('backoffFactor').value = r.backoffFactor || 2;
+        onRetryChange();
 
         // 回填参数表
         const tb = document.querySelector('#paramTable tbody');
@@ -214,6 +242,32 @@ function collectSchedule() {
     return s;
 }
 
+/** 根据当前选择的失败重试策略，显示/隐藏对应配置项。 */
+function onRetryChange() {
+    const rs = parseInt(document.getElementById('retryStrategy').value) || 0;
+    // 固定间隔/指数退避/指定次数都用得到"间隔"与"最大次数"；退避因子仅指数退避用
+    document.getElementById('rowRetryInterval').style.display = (rs == 1 || rs == 2 || rs == 3) ? '' : 'none';
+    document.getElementById('rowMaxRetry').style.display = (rs == 2 || rs == 3) ? '' : 'none';
+    document.getElementById('rowBackoffFactor').style.display = (rs == 2) ? '' : 'none';
+}
+
+/** 收集失败重试配置为对象；策略为"不重试"时返回 null（不持久化该字段）。 */
+function collectRetry() {
+    const rs = parseInt(document.getElementById('retryStrategy').value) || 0;
+    if (rs == 0) return null;
+    const r = {
+        strategy: rs,
+        retryIntervalSeconds: parseInt(document.getElementById('retryInterval').value) || 60
+    };
+    if (rs == 2 || rs == 3) {
+        r.maxRetryCount = parseInt(document.getElementById('maxRetry').value) || 3;
+    }
+    if (rs == 2) {
+        r.backoffFactor = parseFloat(document.getElementById('backoffFactor').value) || 2;
+    }
+    return r;
+}
+
 /** 添加一行空参数。 */
 function addParam() {
     addParamRow('', '');
@@ -265,6 +319,7 @@ async function saveConfig() {
         enabled: document.getElementById('enabled').checked,
         intervalSeconds: parseInt(document.getElementById('interval').value) || 60,
         schedule: collectSchedule(),
+        retry: collectRetry(),
         notes: document.getElementById('notes').value,
         parameters: collectParams()
     });

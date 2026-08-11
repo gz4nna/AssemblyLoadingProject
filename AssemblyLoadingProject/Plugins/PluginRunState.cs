@@ -67,6 +67,10 @@ public sealed class PluginRunState
     /// <summary>累计失败次数。</summary>
     public long FailCount { get; set; }
 
+    /// <summary>当前连续重试计数（运行时维护，失败递增、成功或策略耗尽后清零）。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int RetryCount { get; set; }
+
     private readonly object _logLock = new();
     private readonly List<PluginLogEntry> _logs = new();
     private const int MaxLogs = 50; // 仅内存保留最近日志，长期信息走落盘
