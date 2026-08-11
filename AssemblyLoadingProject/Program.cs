@@ -64,6 +64,13 @@ namespace AssemblyLoadingProject
             app.MapPost("/api/plugins/{file}/config", (string file, PluginConfig config) =>
             {
                 config.AssemblyFile = file;
+
+                // 校验调度配置，无效则拒绝保存并给出原因
+                if (config.Schedule != null && !ScheduleEvaluator.Validate(config.Schedule).Ok)
+                {
+                    return Results.BadRequest(new { ok = false, message = ScheduleEvaluator.Validate(config.Schedule).Message });
+                }
+
                 plugins.UpdateConfig(file, config);
                 return Results.Ok(new { ok = true, message = "配置已保存并应用" });
             });

@@ -46,6 +46,7 @@ run_err.txt
 *.out.txt
 *.err.txt
 startup.log
+build_*.txt
 
 # ===== 数据库文件 / 配置 =====
 *.db

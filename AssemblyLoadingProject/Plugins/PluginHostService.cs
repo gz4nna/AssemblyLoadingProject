@@ -144,6 +144,7 @@ public sealed class PluginHostService : IDisposable
                 cfg.Enabled = saved.Enabled;
                 cfg.IntervalSeconds = saved.IntervalSeconds;
                 cfg.Cron = saved.Cron;
+                cfg.Schedule = saved.Schedule;
                 cfg.Parameters = saved.Parameters ?? new Dictionary<string, string>();
                 cfg.Notes = saved.Notes;
             }
@@ -193,6 +194,22 @@ public sealed class PluginHostService : IDisposable
         => _configs.GetOrAdd(assemblyFile, f => new PluginConfig { AssemblyFile = f });
 
     /// <summary>
+    /// 依据插件调度配置计算下一次执行时间；无可用时间则回退为固定间隔。
+    /// 使用 <see cref="ScheduleEvaluator"/> 支持精确时间 / Cron / 时间段内固定间隔等模式。
+    /// </summary>
+    private static DateTimeOffset ComputeNextRunAt(PluginConfig config, DateTimeOffset from)
+    {
+        var schedule = config.EffectiveSchedule;
+        if (!ScheduleEvaluator.Validate(schedule).Ok)
+        {
+            // 调度配置无效时回退为固定间隔，避免插件"卡死"不再执行
+            return from.AddSeconds(Math.Max(config.IntervalSeconds, 1));
+        }
+        return ScheduleEvaluator.GetNextRunAt(schedule, from)
+            ?? from.AddSeconds(Math.Max(config.IntervalSeconds, 1));
+    }
+
+    /// <summary>
     /// 加载插件并（若启用）注册调度。此方法在前端设置好参数后由 UI 触发。
     /// 加载后不会立即执行，只有到期的定时任务才会触发执行。
     /// </summary>
@@ -219,7 +236,7 @@ public sealed class PluginHostService : IDisposable
         {
             state.Status = PluginStatus.Loaded;
             state.StatusMessage = "已加载，等待定时调度";
-            state.NextRunAt = DateTimeOffset.UtcNow.AddSeconds(Math.Max(cfg.IntervalSeconds, 1));
+            state.NextRunAt = ComputeNextRunAt(cfg, DateTimeOffset.UtcNow);
         }
         else
         {
@@ -282,7 +299,7 @@ public sealed class PluginHostService : IDisposable
             {
                 slot.State.Status = PluginStatus.Loaded;
                 slot.State.StatusMessage = "参数已更新，等待定时调度";
-                slot.State.NextRunAt = DateTimeOffset.UtcNow.AddSeconds(Math.Max(config.IntervalSeconds, 1));
+                slot.State.NextRunAt = ComputeNextRunAt(config, DateTimeOffset.UtcNow);
             }
             else
             {
@@ -328,7 +345,7 @@ public sealed class PluginHostService : IDisposable
 
             if (slot.State.NextRunAt == null)
             {
-                slot.State.NextRunAt = now.AddSeconds(Math.Max(cfg.IntervalSeconds, 1));
+                slot.State.NextRunAt = ComputeNextRunAt(cfg, now);
                 continue;
             }
 
@@ -389,8 +406,8 @@ public sealed class PluginHostService : IDisposable
                 state.AddExecutionRecord(DateTimeOffset.Now, false, sw.ElapsedMilliseconds, result.RowsAffected, result.Message);
             }
 
-            // 计算下次执行时间
-            state.NextRunAt = DateTimeOffset.UtcNow.AddSeconds(Math.Max(config.IntervalSeconds, 1));
+            // 依据调度配置计算下次执行时间
+            state.NextRunAt = ComputeNextRunAt(config, DateTimeOffset.UtcNow);
 
             return result;
         }
@@ -402,7 +419,7 @@ public sealed class PluginHostService : IDisposable
             state.StatusMessage = "执行被取消或超时";
             state.LastElapsedMs = sw.ElapsedMilliseconds;
             state.LastSuccess = false;
-            state.NextRunAt = DateTimeOffset.UtcNow.AddSeconds(Math.Max(config.IntervalSeconds, 1));
+            state.NextRunAt = ComputeNextRunAt(config, DateTimeOffset.UtcNow);
             LogToState(slot.AssemblyFile, "执行被取消或超时", LogLevel.Warn);
             state.AddExecutionRecord(DateTimeOffset.Now, false, sw.ElapsedMilliseconds, null, "执行被取消或超时");
             return TransferResult.Fail("执行被取消或超时");
@@ -415,7 +432,7 @@ public sealed class PluginHostService : IDisposable
             state.StatusMessage = $"异常：{ex.Message}";
             state.LastElapsedMs = sw.ElapsedMilliseconds;
             state.LastSuccess = false;
-            state.NextRunAt = DateTimeOffset.UtcNow.AddSeconds(Math.Max(config.IntervalSeconds, 1));
+            state.NextRunAt = ComputeNextRunAt(config, DateTimeOffset.UtcNow);
             LogToState(slot.AssemblyFile, $"异常：{ex}", LogLevel.Error);
             state.AddExecutionRecord(DateTimeOffset.Now, false, sw.ElapsedMilliseconds, null, ex.Message);
             return TransferResult.Fail(ex.Message);

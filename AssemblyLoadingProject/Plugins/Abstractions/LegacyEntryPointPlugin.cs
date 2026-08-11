@@ -41,14 +41,18 @@ public sealed class LegacyEntryPointPlugin : IDataTransferService
     {
         context.Logger($"开始调用入口方法 {_entryMethod.Name} ...", LogLevel.Info);
         var sw = Stopwatch.StartNew();
+
+        // 设计约定：插件内部原则上不做异常处理，异常/错误一律抛出。
+        // 反射调用会把异常包成 TargetInvocationException，这里解包后重新抛出，
+        // 由宿主 PluginHostService.ExecutePluginAsync 统一捕获处理。
+        // 构造参数：若入口方法带 string[] args 参数则传入空数组，否则无参
+        object?[] args = _entryMethod.GetParameters().Length > 0
+            ? new object?[] { Array.Empty<string>() }
+            : Array.Empty<object?>();
+
+        object? result;
         try
         {
-            // 构造参数：若入口方法带 string[] args 参数则传入空数组，否则无参
-            object?[] args = _entryMethod.GetParameters().Length > 0
-                ? new object?[] { Array.Empty<string>() }
-                : Array.Empty<object?>();
-
-            object? result;
             if (_entryMethod.IsStatic)
             {
                 // 支持 void / object / Task / Task<T>
@@ -59,33 +63,26 @@ public sealed class LegacyEntryPointPlugin : IDataTransferService
                 var instance = Activator.CreateInstance(_entryClass);
                 result = _entryMethod.Invoke(instance, args);
             }
-
-            if (result is Task task)
-            {
-                await task.WaitAsync(cancellationToken);
-            }
-            else if (result is ValueTask vt)
-            {
-                await vt.AsTask().WaitAsync(cancellationToken);
-            }
-
-            sw.Stop();
-            context.Logger($"入口方法执行完成，耗时 {sw.ElapsedMilliseconds}ms", LogLevel.Info);
-            return TransferResult.Ok($"入口方法执行完成", elapsedMs: sw.ElapsedMilliseconds);
         }
         catch (TargetInvocationException tie)
         {
+            // 解包反射调用产生的包装异常，抛出真实错误
             sw.Stop();
-            var inner = tie.InnerException ?? tie;
-            context.Logger($"入口方法异常：{inner}", LogLevel.Error);
-            return TransferResult.Fail(inner.Message, sw.ElapsedMilliseconds);
+            throw (tie.InnerException ?? tie);
         }
-        catch (Exception ex)
+
+        if (result is Task task)
         {
-            sw.Stop();
-            context.Logger($"执行异常：{ex}", LogLevel.Error);
-            return TransferResult.Fail(ex.Message, sw.ElapsedMilliseconds);
+            await task.WaitAsync(cancellationToken);
         }
+        else if (result is ValueTask vt)
+        {
+            await vt.AsTask().WaitAsync(cancellationToken);
+        }
+
+        sw.Stop();
+        context.Logger($"入口方法执行完成，耗时 {sw.ElapsedMilliseconds}ms", LogLevel.Info);
+        return TransferResult.Ok($"入口方法执行完成", elapsedMs: sw.ElapsedMilliseconds);
     }
 
     public void Dispose()

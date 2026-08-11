@@ -77,6 +77,20 @@ public interface IDataTransferService
 - **冗余汇总**：每次执行记录一条"执行历史"（时间/成败/耗时/行数/消息），
   状态页以汇总列表呈现，避免堆积大量细节日志。
 
+### 调度配置（多样化任务启动条件）
+每个插件的"调度条件"决定其如何被触发，支持四种模式（`/config.html` 中选择）：
+
+| 模式 | 说明 | 示例 |
+|------|------|------|
+| **固定间隔** | 按固定秒数周期执行 | 每 60 秒 |
+| **Cron 表达式** | 精确到秒的时刻，基于 `Cronos` | `0 30 14 * * ?` → 每天 14:30:00 |
+| **多个精确时间** | 每天在多个时刻各执行一次 | `["09:00:00","14:30:00","18:00:00"]` |
+| **时间段内固定间隔** | 仅在某时间段内按间隔执行 | 窗口 `09:00`~`17:00`，每 600 秒一次 |
+
+- 时间统一按 **UTC** 推演，前端展示时转换为本地时间。
+- 调度配置随插件配置一起持久化到 `Plugins/plugins.config.json`，重启后自动恢复。
+- 保存前后端会用 `ScheduleEvaluator.Validate` 校验，无效配置会被拒绝并提示原因。
+
 ## 四、开发插件
 
 参考 `SamplePlugins/SampleSqlSyncPlugin`。注意 csproj 关键配置：
@@ -140,13 +154,13 @@ public sealed class MySyncPlugin : DataTransferPluginBase
 ### 已实现的决策
 - **扫描与加载分离**：目录扫描只登记文件元数据，不立即执行；由前端设置参数并启用后才加载调度，符合"指定参数后才启动"的需求。
 - **每个 DLL 独立 ALC（`isCollectible: true`）**：卸载后经 GC 真正释放，实现"热替换"。
-- **固定间隔轮询调度**：简单可靠，适合大多数数据传输场景；未引入重型 Cron 依赖。
+- **多样化调度（已实现）**：支持固定间隔、Cron 精确时间、多个精确时间、时间段内固定间隔四种模式，基于轻量 `Cronos` 库。
 - **TransDataHelper 作为宿主共享依赖**：插件与宿主共用同一份 `TransDataHelper`，避免重复携带驱动文件，同时保证多数据库操作契约统一。
 
 ### 可进一步改进（生产化建议）
 1. **配置持久化（已实现）**：当前配置已通过 `PluginConfigStore` 持久化为 `Plugins/plugins.config.json`。可选增强：迁移到 SQLite，便于并发读写与查询。
-2. **Cron 支持**：对需要"每天 2 点"等精确时刻的任务，引入 `Cronos`/`Quartz.NET` 替换固定间隔。
-3. **失败重试与告警**：增加退避重试、执行超时（已内置 30 分钟）、失败邮件/Webhook 通知。
+2. **Cron 支持（已实现）**：支持精确时间调度（`Cronos`）。可选增强：增加"失败退避重试"与告警（邮件/企业微信）通知。
+3. **失败告警（可增强）**：宿主已统一捕获插件异常（插件不做内部处理）。可选增强：失败退避重试、邮件/企业微信通知（参考 email_service.py / AttendInfoPush 的推送方式）。
 4. **真实数据同步**：示例插件默认演示 SQLite→SQLite；真实库只需在插件中把 `SourceDbType/TargetDbType` 改为 MySql/Oracle/Sybase，并配好连接参数。注意 `TransDataHelper` 的 `OracleAdapter` 禁止写入（主库保护），且 Sybase 走纯文本拼接。
 5. **插件依赖管理**：已通过"宿主共享 TransDataHelper"降低重复；如插件有自身私有第三方依赖，可放入插件目录（`Resolving` 事件会先查插件目录）。
 6. **安全与隔离**：插件代码可完全访问宿主进程。生产环境建议：签名校验、进程级沙箱（如宿主进程 + 插件子进程通过 IPC 通信），或至少对上传 DLL 做白名单。
@@ -166,6 +180,8 @@ AssemblyLoadingProject/
 │  ├─ PluginHostedService.cs                      标准 IHostedService 生命周期托管
 │  ├─ PluginConfig.cs                             插件配置模型
 │  ├─ PluginConfigStore.cs                        配置 JSON 持久化存储
+│  ├─ ScheduleConfig.cs                          调度配置模型（四种模式）
+│  ├─ ScheduleEvaluator.cs                       调度评估：计算下次执行时间
 │  ├─ PluginRunState.cs                           运行状态与日志条目/执行历史
 │  └─ PluginLogStore.cs                           日志落盘（近期内存 + 历史文件轮转）
 ├─ wwwroot/                                       纯 HTML 前端（无 Razor）

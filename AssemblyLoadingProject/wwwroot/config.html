@@ -33,8 +33,51 @@
     <h3>配置</h3>
     <table cellpadding="4" cellspacing="0">
         <tr><td>启用调度：</td><td><input type="checkbox" id="enabled" /></td></tr>
-        <tr><td>执行间隔（秒）：</td><td><input type="number" id="interval" value="60" /></td></tr>
         <tr><td>备注：</td><td><input type="text" id="notes" style="width:300px" /></td></tr>
+    </table>
+
+    <!-- 调度条件（任务启动方式） -->
+    <h4>调度条件</h4>
+    <table cellpadding="4" cellspacing="0">
+        <tr>
+            <td>模式：</td>
+            <td>
+                <select id="schedMode" onchange="onSchedModeChange()">
+                    <option value="0">固定间隔</option>
+                    <option value="1">Cron 表达式（精确时间）</option>
+                    <option value="2">多个精确时间</option>
+                    <option value="3">时间段内固定间隔</option>
+                </select>
+            </td>
+        </tr>
+
+        <!-- 固定间隔 / 时间段内间隔 共用 -->
+        <tr id="rowInterval"><td>间隔（秒）：</td><td><input type="number" id="interval" value="60" /></td></tr>
+
+        <!-- Cron 表达式 -->
+        <tr id="rowCron" style="display:none">
+            <td>Cron：</td>
+            <td><input type="text" id="cron" style="width:300px" placeholder="如 0 30 14 * * ?" />
+                <span style="color:#666">（支持精确到秒，6 段或 5 段）</span></td>
+        </tr>
+
+        <!-- 多个精确时间 -->
+        <tr id="rowTimes" style="display:none">
+            <td valign="top">精确时间：</td>
+            <td>
+                <div id="timesBox"></div>
+                <button onclick="addTime()">+ 添加时间</button>
+                <span style="color:#666">（每天在指定时刻各执行一次，如 09:00:00）</span>
+            </td>
+        </tr>
+
+        <!-- 时间段内固定间隔 -->
+        <tr id="rowWindow" style="display:none">
+            <td>窗口：</td>
+            <td><input type="text" id="winStart" placeholder="09:00" style="width:80px" /> 至
+                <input type="text" id="winEnd" placeholder="17:00" style="width:80px" />
+                <span style="color:#666">（仅在该时间段内按上面间隔执行）</span></td>
+        </tr>
     </table>
 
     <h4>执行参数（键值对）</h4>
@@ -86,8 +129,23 @@ async function loadConfig() {
     try {
         const cfg = await apiGet('/api/plugins/' + encodeURIComponent(file) + '/config');
         document.getElementById('enabled').checked = cfg.enabled;
-        document.getElementById('interval').value = cfg.intervalSeconds || 60;
         document.getElementById('notes').value = cfg.notes || '';
+
+        // 回填调度配置
+        const s = cfg.schedule || {};
+        const mode = (s.mode === undefined || s.mode === null) ? 0 : s.mode;
+        document.getElementById('schedMode').value = String(mode);
+        document.getElementById('interval').value = (s.intervalSeconds || cfg.intervalSeconds || 60);
+        document.getElementById('cron').value = s.cron || cfg.cron || '';
+        document.getElementById('winStart').value = s.windowStart || '';
+        document.getElementById('winEnd').value = s.windowEnd || '';
+
+        // 回填精确时间列表
+        const timesBox = document.getElementById('timesBox');
+        timesBox.innerHTML = '';
+        const times = (s.times && s.times.length) ? s.times : (mode == 2 ? [''] : []);
+        times.forEach(t => addTimeRow(t));
+        onSchedModeChange();
 
         // 回填参数表
         const tb = document.querySelector('#paramTable tbody');
@@ -105,6 +163,55 @@ async function loadConfig() {
         msg.style.color = 'red';
         msg.textContent = '加载配置失败：' + e.message;
     }
+}
+
+/** 根据当前选择的调度模式，显示/隐藏对应的配置项。 */
+function onSchedModeChange() {
+    const mode = parseInt(document.getElementById('schedMode').value) || 0;
+    document.getElementById('rowInterval').style.display = (mode == 0 || mode == 3) ? '' : 'none';
+    document.getElementById('rowCron').style.display = (mode == 1) ? '' : 'none';
+    document.getElementById('rowTimes').style.display = (mode == 2) ? '' : 'none';
+    document.getElementById('rowWindow').style.display = (mode == 3) ? '' : 'none';
+}
+
+/** 添加一行精确时间输入框。 */
+function addTime() {
+    addTimeRow('');
+}
+
+/** 在精确时间列表末尾追加一行（时间 + 删除按钮）。 */
+function addTimeRow(value) {
+    const box = document.getElementById('timesBox');
+    const row = document.createElement('div');
+    row.innerHTML = '<input type="text" class="tk" style="width:120px" value="' + esc(value) + '" placeholder="09:00:00" />' +
+        ' <button onclick="this.closest(\'div\').remove()">删</button>';
+    box.appendChild(row);
+}
+
+/** 收集精确时间列表（忽略空值）。 */
+function collectTimes() {
+    const times = [];
+    document.querySelectorAll('#timesBox .tk').forEach(inp => {
+        const v = inp.value.trim();
+        if (v) times.push(v);
+    });
+    return times;
+}
+
+/** 收集调度配置为对象（随配置一起提交给后端）。 */
+function collectSchedule() {
+    const mode = parseInt(document.getElementById('schedMode').value) || 0;
+    const s = {
+        mode: mode,
+        intervalSeconds: parseInt(document.getElementById('interval').value) || 60
+    };
+    if (mode == 1) s.cron = document.getElementById('cron').value.trim();
+    if (mode == 2) s.times = collectTimes();
+    if (mode == 3) {
+        s.windowStart = document.getElementById('winStart').value.trim();
+        s.windowEnd = document.getElementById('winEnd').value.trim();
+    }
+    return s;
 }
 
 /** 添加一行空参数。 */
@@ -149,14 +256,15 @@ async function doPost(path, body) {
     }
 }
 
-/** 保存配置并应用（含启用状态、间隔、备注、参数）。 */
+/** 保存配置并应用（含启用状态、调度条件、备注、参数）。 */
 async function saveConfig() {
     const file = document.getElementById('fileSel').value;
     if (!file) return;
     await doPost('/api/plugins/' + encodeURIComponent(file) + '/config', {
         assemblyFile: file,
         enabled: document.getElementById('enabled').checked,
-        intervalSeconds: parseInt(document.getElementById('interval').value) || 0,
+        intervalSeconds: parseInt(document.getElementById('interval').value) || 60,
+        schedule: collectSchedule(),
         notes: document.getElementById('notes').value,
         parameters: collectParams()
     });

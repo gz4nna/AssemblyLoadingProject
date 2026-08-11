@@ -76,51 +76,44 @@ public abstract class DataTransferPluginBase : IDataTransferService
         }
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        try
-        {
-            var sourceSql = BuildSourceSql();
-            context.Logger($"开始从源库读取: {sourceSql}", LogLevel.Info);
+        // 设计约定：插件内部原则上不做异常处理，任何异常/错误都直接抛出。
+        // 由宿主 PluginHostService.ExecutePluginAsync 统一捕获：标记状态、记录历史与日志、可触发告警。
+        var sourceSql = BuildSourceSql();
+        context.Logger($"开始从源库读取: {sourceSql}", LogLevel.Info);
 
-            // 1) 源库读取
-            using var reader = SourceAdapter!.ExecuteReader(sourceSql, BuildSourceParameters());
-            var dt = new DataTable();
-            dt.Load(reader);
+        // 1) 源库读取
+        using var reader = SourceAdapter!.ExecuteReader(sourceSql, BuildSourceParameters());
+        var dt = new DataTable();
+        dt.Load(reader);
 
-            if (dt.Rows.Count == 0)
-            {
-                sw.Stop();
-                context.Logger("源库没有新数据，本轮结束", LogLevel.Info);
-                return TransferResult.Ok("源库无新数据", 0, sw.ElapsedMilliseconds);
-            }
-            context.Logger($"源库读取到 {dt.Rows.Count} 条记录", LogLevel.Info);
-
-            // 2) 分批写入目标库（默认整批，可由参数控制）
-            var batchSize = Math.Max(1, int.Parse(context.Parameters.GetValueOrDefault("BatchSize", "500")));
-            var total = 0;
-            for (int start = 0; start < dt.Rows.Count; start += batchSize)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var end = Math.Min(start + batchSize, dt.Rows.Count);
-                var sqls = new List<string>();
-                for (int i = start; i < end; i++)
-                {
-                    sqls.Add(BuildRowSql(dt.Rows[i]));
-                }
-                WriteBatch(sqls);
-                total += end - start;
-                context.Logger($"已写入批次 {start / batchSize + 1}（{end - start} 条，累计 {total}）", LogLevel.Info);
-            }
-
-            sw.Stop();
-            context.Logger($"同步完成，共写入 {total} 条，耗时 {sw.ElapsedMilliseconds}ms", LogLevel.Info);
-            return TransferResult.Ok($"成功写入 {total} 条", total, sw.ElapsedMilliseconds);
-        }
-        catch (Exception ex)
+        if (dt.Rows.Count == 0)
         {
             sw.Stop();
-            context.Logger($"同步失败: {ex}", LogLevel.Error);
-            return TransferResult.Fail(ex.Message, sw.ElapsedMilliseconds);
+            context.Logger("源库没有新数据，本轮结束", LogLevel.Info);
+            return TransferResult.Ok("源库无新数据", 0, sw.ElapsedMilliseconds);
         }
+        context.Logger($"源库读取到 {dt.Rows.Count} 条记录", LogLevel.Info);
+
+        // 2) 分批写入目标库（默认整批，可由参数控制）
+        var batchSize = Math.Max(1, int.Parse(context.Parameters.GetValueOrDefault("BatchSize", "500")));
+        var total = 0;
+        for (int start = 0; start < dt.Rows.Count; start += batchSize)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var end = Math.Min(start + batchSize, dt.Rows.Count);
+            var sqls = new List<string>();
+            for (int i = start; i < end; i++)
+            {
+                sqls.Add(BuildRowSql(dt.Rows[i]));
+            }
+            WriteBatch(sqls);
+            total += end - start;
+            context.Logger($"已写入批次 {start / batchSize + 1}（{end - start} 条，累计 {total}）", LogLevel.Info);
+        }
+
+        sw.Stop();
+        context.Logger($"同步完成，共写入 {total} 条，耗时 {sw.ElapsedMilliseconds}ms", LogLevel.Info);
+        return TransferResult.Ok($"成功写入 {total} 条", total, sw.ElapsedMilliseconds);
     }
 
     /// <summary>把一组 INSERT SQL 写入目标库（默认逐条；Sybase 可用事务批量）。</summary>
