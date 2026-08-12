@@ -1,8 +1,10 @@
+using System.Text.Json.Serialization;
 using LogLevel = AssemblyLoadingProject.Plugins.Abstractions.LogLevel;
 
 namespace AssemblyLoadingProject.Plugins;
 
 /// <summary>插件当前的运行状态。</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum PluginStatus
 {
     /// <summary>已扫描到 DLL 但未加载。</summary>
