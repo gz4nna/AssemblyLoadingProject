@@ -9,17 +9,25 @@
 <head>
 <meta charset="utf-8" />
 <title>告警设置</title>
+<link rel="stylesheet" href="/style.css" />
 <script src="/app.js"></script>
 </head>
 <body>
-<!-- 页面顶部导航 -->
-<p><a href="/index.html">列表</a> | <a href="/config.html">配置</a> | <a href="/status.html">状态</a> | <a href="/settings.html">告警设置</a></p>
+<!-- 顶部导航 -->
+<nav class="topnav">
+    <span class="brand">🔌 插件调度中心</span>
+    <a href="/index.html">列表</a>
+    <a href="/config.html">配置</a>
+    <a href="/status.html">状态</a>
+    <a href="/settings.html" class="active">告警设置</a>
+</nav>
 
-<h1>告警 / 通知设置</h1>
-<p style="color:#666">以下敏感信息保存在 SQLite（plugins.db），不会写入代码。请按需填写后保存。</p>
+<div class="container">
+<h1 class="page-title">告警 / 通知设置</h1>
+<p class="page-sub">以下敏感信息保存在 SQLite（plugins.db），不会写入代码。请按需填写后保存。</p>
 <hr />
 
-<div>
+<div class="card">
     <h3>邮件告警</h3>
     <table cellpadding="4" cellspacing="0">
         <tr><td>启用邮件：</td><td><input type="checkbox" id="emailEnabled" /></td></tr>
@@ -85,5 +93,7 @@ async function saveSettings() {
 
 loadSettings();
 </script>
+</div>
+</div>
 </body>
 </html>

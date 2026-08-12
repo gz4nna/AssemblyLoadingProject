@@ -1,4 +1,5 @@
 using AssemblyLoadingProject.Plugins;
+using Microsoft.AspNetCore.StaticFiles;
 
 namespace AssemblyLoadingProject
 {
@@ -24,8 +25,17 @@ namespace AssemblyLoadingProject
 
             var app = builder.Build();
 
-            // 允许读取静态文件（wwwroot 下放置纯 HTML 页面）
-            app.UseStaticFiles();
+            // 允许读取静态文件（wwwroot 下放置纯 HTML 页面）。
+            // 关闭静态资源缓存（no-cache）：开发/迭代期间确保浏览器总是拿到最新页面，
+            // 避免因浏览器缓存导致看到旧样式/旧功能。
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                OnPrepareResponse = ctx =>
+                {
+                    ctx.Context.Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
+                    ctx.Context.Response.Headers["Pragma"] = "no-cache";
+                }
+            });
             app.UseDefaultFiles();
 
             // 后端 API：插件管理（纯 JSON，供前端 fetch 调用）
@@ -65,6 +75,13 @@ namespace AssemblyLoadingProject
             {
                 var cfg = plugins.GetConfig(file);
                 return Results.Ok(cfg);
+            });
+
+            // 更新插件的显示名称/描述覆盖
+            app.MapPost("/api/plugins/{file}/display", (string file, DisplayRequest req) =>
+            {
+                plugins.UpdateDisplay(file, req.DisplayName, req.Description);
+                return Results.Ok(new { ok = true, message = "显示信息已更新" });
             });
 
             // 保存配置并启动/停止
@@ -129,6 +146,12 @@ namespace AssemblyLoadingProject
         public sealed class EnableRequest
         {
             public bool Enabled { get; set; }
+        }
+
+        public sealed class DisplayRequest
+        {
+            public string? DisplayName { get; set; }
+            public string? Description { get; set; }
         }
     }
 }

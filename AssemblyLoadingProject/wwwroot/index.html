@@ -3,53 +3,100 @@
 <head>
 <meta charset="utf-8" />
 <title>插件 DLL 列表</title>
+<link rel="stylesheet" href="/style.css" />
 <script src="/app.js"></script>
 </head>
 <body>
-<!-- 页面顶部导航：三个功能页之间互相跳转 -->
-<p><a href="/index.html">列表</a> | <a href="/config.html">配置</a> | <a href="/status.html">状态</a></p>
+<!-- 顶部导航 -->
+<nav class="topnav">
+    <span class="brand">🔌 插件调度中心</span>
+    <a href="/index.html" class="active">列表</a>
+    <a href="/config.html">配置</a>
+    <a href="/status.html">状态</a>
+    <a href="/settings.html">告警设置</a>
+</nav>
 
-<h1>插件 DLL 列表</h1>
-<!-- 手动触发后端扫描：发现新放入的插件 DLL -->
-<button onclick="refresh()">重新扫描</button>
-<hr />
+<div class="container">
+    <h1 class="page-title">插件 DLL 列表</h1>
+    <p class="page-sub">点击任意插件可展开编辑显示名称/描述；点击"重新扫描"发现新放入的 DLL。</p>
 
-<!-- DLL 列表：展示名称、版本、当前状态与说明 -->
-<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
-<thead>
-<tr><th>DLL 文件</th><th>名称</th><th>版本</th><th>状态</th><th>说明</th></tr>
-</thead>
-<tbody id="rows"></tbody>
-</table>
+    <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <strong>共 <span id="count">0</span> 个插件</strong>
+            <button class="btn" onclick="refresh()">🔄 重新扫描</button>
+        </div>
+        <div id="list"></div>
+    </div>
+</div>
 
 <script>
 /**
- * 从后端拉取插件列表并渲染到表格。
- * - 调用 GET /api/plugins（该接口内部会先执行一次扫描）；
- * - 状态列按后端枚举映射为中文并着色。
+ * 从后端拉取插件列表并渲染为可展开的卡片。
+ * 每张卡片可点击头部展开，编辑该插件的显示名称与描述。
  */
 async function refresh() {
-    const rows = document.getElementById('rows');
-    rows.innerHTML = '<tr><td colspan="5">加载中...</td></tr>';
+    const list = document.getElementById('list');
+    list.innerHTML = '<p class="muted">加载中...</p>';
     try {
         const data = await apiGet('/api/plugins');
+        document.getElementById('count').textContent = data ? data.length : 0;
         if (!data || data.length === 0) {
-            rows.innerHTML = '<tr><td colspan="5">未扫描到任何 DLL，请点击"重新扫描"</td></tr>';
+            list.innerHTML = '<p class="muted">未扫描到任何 DLL，请点击"重新扫描"。</p>';
             return;
         }
-        rows.innerHTML = data.map(p => {
-            return '<tr>' +
-                '<td>' + esc(p.assemblyFile) + '</td>' +
-                '<td>' + esc(p.displayName) + '</td>' +
-                '<td>' + esc(p.version) + '</td>' +
-                '<td style="color:' + statusColor(p.status) + '">' + statusText(p.status) + '（' + esc(p.statusMessage) + '）</td>' +
-                '<td>' + esc(p.description) + '</td>' +
-                '</tr>';
-        }).join('');
+        list.innerHTML = data.map(p => renderCard(p)).join('');
     } catch (e) {
-        rows.innerHTML = '<tr><td colspan="5" style="color:red">加载失败：' + esc(e.message) + '</td></tr>';
+        list.innerHTML = '<p style="color:var(--danger)">加载失败：' + esc(e.message) + '</p>';
     }
 }
+
+/** 渲染单张插件卡片（含折叠的编辑区）。 */
+function renderCard(p) {
+    return '<div class="plugin-card" id="card_' + esc(p.assemblyFile) + '">' +
+        '<div class="plugin-head" onclick="toggleCard(\'' + esc(p.assemblyFile) + '\')">' +
+            '<span class="icon">📦</span>' +
+            '<span class="info">' +
+                '<div class="name">' + esc(p.displayName) + '</div>' +
+                '<div class="meta">' + esc(p.assemblyFile) + ' · v' + esc(p.version) +
+                    ' · <span style="color:' + statusColor(p.status) + '">' + statusText(p.status) + '</span></div>' +
+            '</span>' +
+            '<span class="caret" id="caret_' + esc(p.assemblyFile) + '">▶</span>' +
+        '</div>' +
+        '<div class="plugin-body" id="body_' + esc(p.assemblyFile) + '">' +
+            '<div><label>显示名称：</label><br/><input type="text" id="dispName_' + esc(p.assemblyFile) + '" value="' + esc(p.displayName) + '" style="width:100%" /></div>' +
+            '<div style="margin-top:10px"><label>显示描述：</label><br/><textarea id="dispDesc_' + esc(p.assemblyFile) + '" style="width:100%;height:60px">' + esc(p.description || '') + '</textarea></div>' +
+            '<div style="margin-top:12px">' +
+                '<button class="btn sm success" onclick="saveDisplay(\'' + esc(p.assemblyFile) + '\')">保存显示信息</button>' +
+                '<span class="msg" id="msg_' + esc(p.assemblyFile) + '"></span>' +
+            '</div>' +
+        '</div>' +
+    '</div>';
+}
+
+/** 展开/折叠插件卡片。 */
+function toggleCard(file) {
+    const body = document.getElementById('body_' + file);
+    const caret = document.getElementById('caret_' + file);
+    const open = body.classList.toggle('open');
+    caret.classList.toggle('open', open);
+}
+
+/** 保存该插件的显示名称/描述覆盖。 */
+async function saveDisplay(file) {
+    const name = document.getElementById('dispName_' + file).value.trim();
+    const desc = document.getElementById('dispDesc_' + file).value.trim();
+    const msg = document.getElementById('msg_' + file);
+    try {
+        await apiPost('/api/plugins/' + encodeURIComponent(file) + '/display', { displayName: name, description: desc });
+        msg.className = 'msg ok';
+        msg.textContent = '已保存';
+        refresh(); // 刷新以更新列表显示
+    } catch (e) {
+        msg.className = 'msg err';
+        msg.textContent = e.message;
+    }
+}
+
 refresh();
 </script>
 </body>

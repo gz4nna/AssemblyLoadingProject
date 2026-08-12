@@ -59,16 +59,37 @@ public sealed class PluginHostService : IDisposable
     public List<string> ReadLogHistory(string assemblyFile, int maxLines = 100)
         => _logStore.ReadHistory(assemblyFile, maxLines);
 
-    /// <summary>所有插件的运行时状态快照（供 UI 绑定）。</summary>
+    /// <summary>所有插件的运行时状态快照（供 UI 绑定）。返回前应用显示名称/描述覆盖。</summary>
     public IReadOnlyList<PluginRunState> GetAllStates()
     {
         lock (_lock)
         {
             return _loader.Slots
                 .OrderBy(s => s.AssemblyFile, StringComparer.OrdinalIgnoreCase)
-                .Select(s => s.State)
+                .Select(s =>
+                {
+                    var state = s.State;
+                    // 应用前端配置的显示名称/描述覆盖（为空时保留插件自带值）
+                    if (_configs.TryGetValue(s.AssemblyFile, out var cfg))
+                    {
+                        if (!string.IsNullOrWhiteSpace(cfg.DisplayName))
+                            state.DisplayName = cfg.DisplayName;
+                        if (!string.IsNullOrWhiteSpace(cfg.Description))
+                            state.Description = cfg.Description;
+                    }
+                    return state;
+                })
                 .ToList();
         }
+    }
+
+    /// <summary>更新插件的显示名称/描述覆盖（并持久化）。</summary>
+    public void UpdateDisplay(string assemblyFile, string? displayName, string? description)
+    {
+        var cfg = GetOrCreateConfig(assemblyFile);
+        cfg.DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName;
+        cfg.Description = string.IsNullOrWhiteSpace(description) ? null : description;
+        PersistAll();
     }
 
     /// <summary>启动后台调度循环。</summary>
@@ -162,6 +183,8 @@ public sealed class PluginHostService : IDisposable
                 cfg.Retry = saved.Retry;
                 cfg.Parameters = saved.Parameters ?? new Dictionary<string, string>();
                 cfg.Notes = saved.Notes;
+                cfg.DisplayName = saved.DisplayName;
+                cfg.Description = saved.Description;
             }
         }
     }

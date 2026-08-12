@@ -40,6 +40,12 @@ public sealed class PluginConfig
     /// <summary>前端可编辑的备注/说明（持久化，便于标记用途）。</summary>
     public string? Notes { get; set; }
 
+    /// <summary>显示名称覆盖（可选）。为空时使用插件自带的 DisplayName。</summary>
+    public string? DisplayName { get; set; }
+
+    /// <summary>显示描述覆盖（可选）。为空时使用插件自带的 Description。</summary>
+    public string? Description { get; set; }
+
     /// <summary>最近一次执行状态快照（运行时维护，不持久化）。</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public PluginRunState? LastRun { get; set; }
