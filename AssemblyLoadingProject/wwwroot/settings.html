@@ -32,15 +32,16 @@
     <table cellpadding="4" cellspacing="0">
         <tr><td>启用邮件：</td><td><input type="checkbox" id="emailEnabled" /></td></tr>
         <tr><td>邮件服务地址：</td><td><input type="text" id="emailApi" style="width:380px" placeholder="http://<地址>:<端口>/send" /></td></tr>
-        <tr><td>收件邮箱：</td><td><input type="text" id="emailTo" style="width:380px" placeholder="your@example.com" /></td></tr>
+        <tr><td>收件邮箱：</td><td><input type="text" id="emailTo" style="width:380px" placeholder="a@x.com, b@x.com" />
+            <span class="muted small">支持多个，用逗号/分号/竖线分隔</span></td></tr>
     </table>
 
     <h3>企业微信推送</h3>
     <table cellpadding="4" cellspacing="0">
         <tr><td>启用推送：</td><td><input type="checkbox" id="wechatEnabled" /></td></tr>
         <tr><td>推送服务地址：</td><td><input type="text" id="pushUrl" style="width:380px" placeholder="http://<地址>:<端口>/api/messagepush" /></td></tr>
-        <tr><td>OA 账号：</td><td><input type="text" id="oaAccount" style="width:380px" placeholder="OA账号" /></td></tr>
-        <tr><td>跳转地址：</td><td><input type="text" id="targetUrl" style="width:380px" placeholder="http://<业务页面>" /></td></tr>
+        <tr><td>OA 账号：</td><td><input type="text" id="oaAccount" style="width:380px" placeholder="UserID1|UserID2" />
+            <span class="muted small">支持多个，用竖线"|"分隔（AgentID 由推送接口自动填充）</span></td></tr>
     </table>
 
     <br />
@@ -61,7 +62,6 @@ async function loadSettings() {
         document.getElementById('wechatEnabled').checked = (s['Alert:WeChatEnabled'] === 'true');
         document.getElementById('pushUrl').value = s['Alert:PushUrl'] || '';
         document.getElementById('oaAccount').value = s['Alert:OaAccount'] || '';
-        document.getElementById('targetUrl').value = s['Alert:TargetUrl'] || '';
         msg.textContent = '';
     } catch (e) {
         msg.style.color = 'red';
@@ -78,8 +78,7 @@ async function saveSettings() {
         'Alert:EmailTo': document.getElementById('emailTo').value.trim(),
         'Alert:WeChatEnabled': document.getElementById('wechatEnabled').checked ? 'true' : 'false',
         'Alert:PushUrl': document.getElementById('pushUrl').value.trim(),
-        'Alert:OaAccount': document.getElementById('oaAccount').value.trim(),
-        'Alert:TargetUrl': document.getElementById('targetUrl').value.trim()
+        'Alert:OaAccount': document.getElementById('oaAccount').value.trim()
     };
     try {
         const r = await apiPost('/api/settings', settings);
