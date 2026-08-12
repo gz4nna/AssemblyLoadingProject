@@ -59,8 +59,10 @@ public interface IDataTransferService
 
 ## 三、使用步骤（纯 HTML 前端）
 
-1. **放置插件**：把编译好的插件 DLL 放入 `AssemblyLoadingProject/bin/Debug/net10.0/Plugins/`
-   （或 appsettings 里 `Plugins:Directory` 指定的目录）。
+1. **放置插件**：把编译好的插件 DLL 放入**数据目录**（默认 `AssemblyLoadingProject/bin/Debug/net10.0/Plugins/`）。
+   - 数据目录可通过配置 `Plugins:Directory`（或环境变量 `Plugins__Directory`）指定；
+     若为**绝对路径**（如 Docker 挂载点 `/data`）则直接使用，否则相对应用基础目录。
+   - 数据目录中会生成：插件 DLL 列表、`plugins.db`（SQLite 配置库）、`plugins.config.json`（JSON 降级）、`logs/`（历史日志）。
 2. **运行宿主**：`dotnet run --project AssemblyLoadingProject`。
 3. 浏览器打开启动页（默认 `http://localhost:5246/`，以 launchSettings 或启动参数为准）：
    - **`/`（列表页）**：查看扫描到的 DLL 与状态，可"重新扫描"。
@@ -70,6 +72,75 @@ public interface IDataTransferService
 4. **配置持久化**：前端保存的**启用状态、调度条件、参数、备注**实时持久化到 **`Plugins/plugins.db`（SQLite）**，
    宿主重启后按 **扫描 → 默认配置 → 读存储覆盖 → `enabled=true` 自动加载调度** 恢复（SQLite 不可用时自动降级到 JSON）。
 5. **更新/热替换**：替换 DLL 文件后，重新扫描检测到更新并自动重载（无需重启宿主）。
+
+## Docker 部署（Windows 发布 → scp → 宿主机制镜像，debian:13）
+
+部署流程：
+1. 在 **Windows** 上编写/测试（本仓库）；
+2. **不依赖框架、单文件发布**（linux-x64 自包含），减少文件数；
+3. `scp` 到服务器宿主机；
+4. 在**宿主机**上用发布产物制作 debian:13 镜像并运行容器。
+
+数据（插件 DLL、SQLite 配置库、JSON 降级、日志）全部放在**宿主机 volume**下，便于快速部署与替换。
+
+### 第 1 步：Windows 上单文件自包含发布
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\publish-linux.ps1
+```
+
+该脚本执行（等价命令）：
+```bash
+dotnet publish AssemblyLoadingProject/AssemblyLoadingProject/AssemblyLoadingProject.csproj \
+    -c Release -r linux-x64 --self-contained true \
+    -p:PublishSingleFile=true \
+    -p:IncludeNativeLibrariesForSelfExtract=true \
+    -p:PublishTrimmed=false \
+    -o publish/linux-x64
+```
+- **`--self-contained true`**：不依赖目标机安装 .NET，适合 debian 基础镜像。
+- **`PublishSingleFile=true`**：打包为单个可执行文件，减少文件数。
+- **`IncludeNativeLibrariesForSelfExtract=true`**：把 SQLite 等原生库一并打入单文件，运行期自解压。
+- **`PublishTrimmed=false`**：**关闭裁剪**——避免破坏基于反射的 AssemblyLoadContext 插件加载。
+- 产物在 `publish/linux-x64/`（单文件 `AssemblyLoadingProject` + `wwwroot/` 静态资源 + 少量依赖）。
+
+### 第 2 步：scp 到宿主机
+
+```bash
+# 在 Windows PowerShell 执行（把发布产物传到宿主机 /opt/plugin-host/）
+scp -r .\publish\linux-x64\* user@服务器IP:/opt/plugin-host/
+```
+
+### 第 3 步：在宿主机上构建镜像并运行
+
+```bash
+# 进入产物目录（需含 Dockerfile 与 docker-compose.yml，可一并 scp 过去）
+cd /opt/plugin-host
+
+# 构建镜像（debian:13 运行时镜像，仅拷贝单文件产物，无需 .NET SDK）
+docker build -t plugin-host:latest .
+
+# 方式一：用 docker-compose 启动（推荐，含 volume 挂载与端口映射）
+docker compose up -d
+
+# 方式二：手动运行
+docker run -d --name plugin-host -p 8080:8080 \
+    -e Plugins__Directory=/data \
+    -e TZ=Asia/Shanghai \
+    -v /opt/plugin-host/data:/data \
+    plugin-host:latest
+```
+
+- **宿主机数据目录**：`/opt/plugin-host/data/`（compose 默认挂载 `./data:/data`）。
+- **放置/替换插件**：把插件 DLL 复制到宿主机 `/opt/plugin-host/data/` → 容器 `/data` 自动扫描到（页面点"重新扫描"）。
+- **配置与日志**：`data/plugins.db`、`data/plugins.config.json`、`data/logs/` 持久化在宿主机，容器重建不丢失。
+- **端口**：容器 `8080`（`ASPNETCORE_URLS`），compose 映射宿主 `8080`。
+- **时区**：默认 `Asia/Shanghai`（`TZ`）。
+- **运行用户**：默认 root（避免 bind mount 权限问题）；如需更安全可去掉 root 并确保 `data/` 可写。
+- **共享依赖目录 `lib/`**：`TransDataHelper.dll` 以独立 DLL 形式放在数据目录下的 `lib/`（即宿主 volume 的 `lib/`）。
+  与 `logs/`、`plugins.db` 等同在宿主机挂载目录，**依赖库改动时只需替换 `lib/TransDataHelper.dll`，无需重建镜像或重发布宿主**。
+  - **首次部署**：把发布产物中的 `publish/linux-x64/lib/TransDataHelper.dll` 拷贝到宿主机挂载目录 `/data/lib/`（compose 为 `plugin-data/lib/`），再启动容器。
+  - 若 `/data/lib` 缺失或为空，宿主启动时默认上下文无法解析 `TransDataHelper`，插件将无法加载。
 
 ### 失败告警（邮件 + 企业微信）
 - 插件执行失败（返回失败、抛异常、超时/取消）时，宿主统一捕获并触发**失败告警**。

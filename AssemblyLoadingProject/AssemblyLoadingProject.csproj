@@ -12,7 +12,8 @@
       作为宿主与所有插件共享的依赖：宿主引用它，插件也引用它（Private=false 不复制），
       从而在插件的 AssemblyLoadContext 解析时回退到宿主已加载的这份拷贝，避免重复携带。
     -->
-    <ProjectReference Include="..\..\DataTableCopyScripts\TransDataHelper\TransDataHelper\TransDataHelper.csproj" />
+    <ProjectReference Include="..\..\DataTableCopyScripts\TransDataHelper\TransDataHelper\TransDataHelper.csproj"
+                      ExcludeFromSingleFile="true" />
 
     <!--
       Cronos：Cron 表达式解析库，用于实现"精确时间"调度。

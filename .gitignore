@@ -62,3 +62,19 @@ build_*.txt
 # ===== 应用配置中的本地开发配置（可能含密钥，按需保留 appsettings.json） =====
 appsettings.Development.json
 appsettings.Production.json
+
+# ===== Docker 宿主 volume 挂载目录（含插件 DLL/配置库/日志等敏感运行时数据，不提交） =====
+data/
+
+# ===== 单文件发布产物（Windows 端生成，用于 scp 到宿主机，不提交） =====
+publish/
+
+# ===== 部署/镜像构建敏感文件（含代理地址、端口映射、挂载点、镜像名等，不上传） =====
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.override.yml
+publish-linux.ps1
+*.dockerfile
+**/PublishProfiles/
+*.pubxml

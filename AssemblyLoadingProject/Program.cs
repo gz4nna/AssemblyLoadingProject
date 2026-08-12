@@ -1,3 +1,5 @@
+using System.Reflection;
+using System.Runtime.Loader;
 using AssemblyLoadingProject.Plugins;
 using Microsoft.AspNetCore.StaticFiles;
 
@@ -9,9 +11,36 @@ namespace AssemblyLoadingProject
         {
             var builder = WebApplication.CreateBuilder(args);
 
-            // 插件宿主服务：单例，负责扫描/加载/调度/状态跟踪
+            // 插件宿主服务：单例，负责扫描/加载/调度/状态跟踪。
+            // 数据目录（含插件 DLL、SQLite 配置库、JSON 降级配置、日志）解析规则：
+            //   1) 若 Plugins:Directory 为绝对路径（如 Docker volume 挂载点 /data），直接使用；
+            //   2) 否则视为相对路径，拼接到应用基础目录下。
+            // 部署在 Docker 时，可通过环境变量 Plugins__Directory（映射 Plugins:Directory）指向宿主 volume。
             var pluginsDir = builder.Configuration["Plugins:Directory"] ?? "Plugins";
-            var pluginsPath = Path.Combine(AppContext.BaseDirectory, pluginsDir);
+            var pluginsPath = Path.IsPathRooted(pluginsDir)
+                ? Path.GetFullPath(pluginsDir)
+                : Path.Combine(AppContext.BaseDirectory, pluginsDir);
+
+            // 确保数据目录存在（Docker 首次挂载空 volume 时由容器负责创建）
+            Directory.CreateDirectory(pluginsPath);
+
+            // 让默认上下文能从独立的"共享依赖目录"加载 TransDataHelper.dll。
+            // 配合发布时 ExcludeFromSingleFile=true，TransDataHelper 以独立 DLL 输出，
+            // 不再内嵌进单文件宿主；改动依赖库时只需替换该 DLL，无需重发布整个宿主。
+            // 共享目录默认放在插件数据目录下的 lib/（Docker 中即挂载卷 /data/lib，
+            // 与 logs/、plugins.db 等同在宿主机 volume 下，便于直接替换 DLL），
+            // 可通过环境变量 SHARED_LIB_DIR 覆盖。
+            var sharedLibDir = Environment.GetEnvironmentVariable("SHARED_LIB_DIR")
+                ?? Path.Combine(pluginsPath, "lib");
+            if (!Directory.Exists(sharedLibDir))
+                Directory.CreateDirectory(sharedLibDir);
+            AssemblyLoadContext.Default.Resolving += (ctx, name) =>
+            {
+                if (name.Name is null) return null;
+                var candidate = Path.Combine(sharedLibDir, name.Name + ".dll");
+                return File.Exists(candidate) ? ctx.LoadFromAssemblyPath(candidate) : null;
+            };
+
             builder.Services.AddSingleton(_ => new AppSettingsStore(pluginsPath));
             builder.Services.AddSingleton(sp =>
                 new AlertService(sp.GetRequiredService<AppSettingsStore>(), sp.GetRequiredService<ILogger<AlertService>>()));
