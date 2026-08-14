@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>默认参数</title>
+<link rel="stylesheet" href="/style.css" />
+<script src="/app.js"></script>
+</head>
+<body>
+<!-- 顶部导航 -->
+<nav class="topnav">
+    <span class="brand">🔌 插件调度中心</span>
+    <a href="/index.html">列表</a>
+    <a href="/config.html">配置</a>
+    <a href="/status.html">状态</a>
+    <a href="/defaults.html" class="active">默认参数</a>
+    <a href="/settings.html">告警设置</a>
+</nav>
+
+<div class="container">
+<h1 class="page-title">全局默认参数</h1>
+<p class="page-sub">所有插件共享的一套兜底连接参数（host / user / pwd / port 等），保存于 SQLite（plugins.db），不会写入代码。插件未在"配置 → 执行参数"中指定时，使用这里的值；插件级执行参数会覆盖默认参数。</p>
+<hr />
+
+<div class="card">
+    <p class="muted small">提示：以 key 名区分用途。例如 SQL Server 用 <code>SqlServerHost / SqlServerDb / SqlServerUser / SqlServerPwd / SqlServerPort</code>；MySQL 用 <code>MySqlHost / MySqlDb / ...</code>；Sybase 用 <code>SybaseHost / SybaseDb / ...</code>。</p>
+    <table id="defaultParamTable" cellpadding="4" cellspacing="0" border="1" style="border-collapse:collapse;margin-top:8px">
+        <thead><tr><th>参数名</th><th>参数值</th><th></th></tr></thead>
+        <tbody></tbody>
+    </table>
+    <div style="margin-top:10px">
+        <button onclick="addDefaultParam()">+ 添加默认参数</button>
+        <button onclick="saveDefaultParams()">保存全局默认参数</button>
+        <span id="msg" style="margin-left:10px"></span>
+    </div>
+</div>
+</div>
+
+<script>
+/* ================== 全局默认参数 ================== */
+
+/** 加载全局默认参数并回填到默认参数表。 */
+async function loadDefaultParams() {
+    const tb = document.querySelector('#defaultParamTable tbody');
+    tb.innerHTML = '';
+    try {
+        const params = await apiGet('/api/defaultparams');
+        for (const k in params) addDefaultParamRow(k, params[k]);
+        if (Object.keys(params).length === 0) addDefaultParamRow('', '');
+    } catch (e) {
+        showMsg('加载默认参数失败：' + e.message, true);
+        addDefaultParamRow('', '');
+    }
+}
+
+/** 添加一行空默认参数。 */
+function addDefaultParam() {
+    addDefaultParamRow('', '');
+}
+
+/** 在默认参数表末尾追加一行（参数名 + 参数值 + 删除按钮）。 */
+function addDefaultParamRow(key, value) {
+    const tb = document.querySelector('#defaultParamTable tbody');
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td><input type="text" class="dpk" style="width:200px" value="' + esc(key) + '" /></td>' +
+        '<td><input type="text" class="dpv" style="width:320px" value="' + esc(value) + '" /></td>' +
+        '<td><button onclick="this.closest(\'tr\').remove()">删</button></td>';
+    tb.appendChild(tr);
+}
+
+/** 收集默认参数表为对象；参数名为空的行被忽略。 */
+function collectDefaultParams() {
+    const params = {};
+    document.querySelectorAll('#defaultParamTable tbody tr').forEach(tr => {
+        const k = tr.querySelector('.dpk').value.trim();
+        const v = tr.querySelector('.dpv').value;
+        if (k) params[k] = v;
+    });
+    return params;
+}
+
+/** 保存全局默认参数。 */
+async function saveDefaultParams() {
+    try {
+        await apiPost('/api/defaultparams', collectDefaultParams());
+        showMsg('全局默认参数已保存');
+    } catch (e) {
+        showMsg('保存失败：' + e.message, true);
+    }
+}
+
+/** 显示提示信息。 */
+function showMsg(text, isError) {
+    const msg = document.getElementById('msg');
+    msg.style.color = isError ? 'red' : '#16a34a';
+    msg.textContent = text;
+}
+
+loadDefaultParams();
+</script>
+</body>
+</html>

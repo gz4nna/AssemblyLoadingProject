@@ -22,6 +22,7 @@ public sealed class PluginHostService : IDisposable
     private readonly PluginLogStore _logStore;
     private readonly AlertService _alertService;
     private readonly AppSettingsStore _appSettings;
+    private readonly DefaultParamStore _defaultParams;
     private readonly object _lock = new();
 
     // assemblyFile -> 配置（内存副本；启用状态/参数会持久化到 JSON）
@@ -36,6 +37,7 @@ public sealed class PluginHostService : IDisposable
         ILogger<PluginHostService> logger,
         string pluginsDirectory,
         AppSettingsStore appSettings,
+        DefaultParamStore defaultParams,
         AlertService alertService)
     {
         _logger = logger;
@@ -43,6 +45,7 @@ public sealed class PluginHostService : IDisposable
         _configStore = new PluginConfigStore(pluginsDirectory);
         _logStore = new PluginLogStore(pluginsDirectory);
         _appSettings = appSettings;
+        _defaultParams = defaultParams;
         _alertService = alertService;
     }
 
@@ -232,6 +235,20 @@ public sealed class PluginHostService : IDisposable
         => _configs.GetOrAdd(assemblyFile, f => new PluginConfig { AssemblyFile = f });
 
     /// <summary>
+    /// 解析最终传给插件的参数：SQLite 全局默认参数（底层兜底） + 前端插件参数（覆盖）。
+    /// 这样插件 Initialize 里不再需要硬编码连接默认值，未在前端指定的键会取到 SQLite 默认值。
+    /// </summary>
+    private IReadOnlyDictionary<string, string> ResolveParameters(PluginConfig config)
+    {
+        // 浅拷贝全局默认参数为基底
+        var merged = new Dictionary<string, string>(_defaultParams.LoadAll(), StringComparer.OrdinalIgnoreCase);
+        // 前端插件级参数覆盖默认
+        foreach (var kv in config.Parameters)
+            merged[kv.Key] = kv.Value;
+        return merged;
+    }
+
+    /// <summary>
     /// 依据插件调度配置计算下一次执行时间；无可用时间则回退为固定间隔。
     /// 使用 <see cref="ScheduleEvaluator"/> 支持精确时间 / Cron / 时间段内固定间隔等模式。
     /// </summary>
@@ -288,10 +305,10 @@ public sealed class PluginHostService : IDisposable
         if (instance == null)
             return false;
 
-        // 初始化插件（传入上下文，插件可解析参数建立连接）
+        // 初始化插件（传入上下文，插件可解析参数建立连接；参数已合并全局默认值）
         instance.Initialize(new PluginContext
         {
-            Parameters = cfg.Parameters,
+            Parameters = ResolveParameters(cfg),
             Logger = (msg, lv) => LogToState(assemblyFile, msg, lv),
             CancellationToken = CancellationToken.None,
         });
@@ -352,10 +369,10 @@ public sealed class PluginHostService : IDisposable
         var slot = _loader.Slots.FirstOrDefault(s => string.Equals(s.AssemblyFile, assemblyFile, StringComparison.OrdinalIgnoreCase));
         if (slot?.Instance != null)
         {
-            // 重新初始化以应用新参数
+            // 重新初始化以应用新参数（已合并全局默认值）
             slot.Instance.Initialize(new PluginContext
             {
-                Parameters = config.Parameters,
+                Parameters = ResolveParameters(config),
                 Logger = (msg, lv) => LogToState(assemblyFile, msg, lv),
                 CancellationToken = CancellationToken.None,
             });
@@ -441,7 +458,7 @@ public sealed class PluginHostService : IDisposable
 
             var context = new PluginContext
             {
-                Parameters = config.Parameters,
+                Parameters = ResolveParameters(config),
                 Logger = (msg, lv) => LogToState(slot.AssemblyFile, msg, lv),
                 CancellationToken = cts.Token,
             };

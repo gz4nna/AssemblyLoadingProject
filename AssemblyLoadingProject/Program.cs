@@ -42,6 +42,7 @@ namespace AssemblyLoadingProject
             };
 
             builder.Services.AddSingleton(_ => new AppSettingsStore(pluginsPath));
+            builder.Services.AddSingleton(_ => new DefaultParamStore(pluginsPath));
             builder.Services.AddSingleton(sp =>
                 new AlertService(sp.GetRequiredService<AppSettingsStore>(), sp.GetRequiredService<ILogger<AlertService>>()));
             builder.Services.AddSingleton(sp =>
@@ -49,6 +50,7 @@ namespace AssemblyLoadingProject
                     sp.GetRequiredService<ILogger<PluginHostService>>(),
                     pluginsPath,
                     sp.GetRequiredService<AppSettingsStore>(),
+                    sp.GetRequiredService<DefaultParamStore>(),
                     sp.GetRequiredService<AlertService>()));
             builder.Services.AddHostedService<PluginHostedService>();
 
@@ -169,6 +171,19 @@ namespace AssemblyLoadingProject
             {
                 plugins.AppSettings.Set(settings);
                 return Results.Ok(new { ok = true, message = "设置已保存" });
+            });
+
+            // ---- 全局默认连接参数（存于 SQLite，供所有插件作为连接参数兜底） ----
+            var defaultParams = app.Services.GetRequiredService<DefaultParamStore>();
+
+            // 读取全部默认参数
+            app.MapGet("/api/defaultparams", () => Results.Ok(defaultParams.LoadAll()));
+
+            // 保存默认参数（覆盖式写入，前端提交完整字典）
+            app.MapPost("/api/defaultparams", (Dictionary<string, string> settings) =>
+            {
+                defaultParams.Set(settings);
+                return Results.Ok(new { ok = true, message = "默认参数已保存" });
             });
         }
 

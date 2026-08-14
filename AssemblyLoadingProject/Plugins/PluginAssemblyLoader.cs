@@ -119,14 +119,26 @@ public sealed class PluginAssemblyLoader : IDisposable
             name: $"Plugin::{assemblyFile}::{Guid.NewGuid():N}",
             isCollectible: true);
 
-        // 解析插件内部依赖：先看插件目录，再看宿主默认上下文
+        // 解析插件内部依赖：
+        //   1) 优先用宿主默认上下文（TransDataHelper 等共享依赖已由宿主从 lib/ 加载，
+        //      可保证拿到最新版，避免被插件目录里的旧副本遮蔽）；
+        //   2) 宿主解析不到（插件私有依赖）再回退插件目录。
         slot.LoadContext.Resolving += (ctx, name) =>
         {
+            if (name.Name is not null)
+            {
+                try
+                {
+                    return AssemblyLoadContext.Default.LoadFromAssemblyName(name);
+                }
+                catch (FileNotFoundException) { /* 宿主无此程序集，走插件目录 */ }
+            }
+
             var localPath = Path.Combine(_pluginsDirectory, name.Name + ".dll");
             if (File.Exists(localPath))
                 return ctx.LoadFromAssemblyPath(localPath);
 
-            return AssemblyLoadContext.Default.LoadFromAssemblyName(name);
+            return null;
         };
 
         try
