@@ -83,17 +83,18 @@ public sealed class PluginAssemblyLoader : IDisposable
             }
         }
 
-        // 移除已删除的文件（若已加载则卸载）
+        // 移除已删除的文件：立即卸载该插件，释放实例与 AssemblyLoadContext，
+        // 避免旧 dll 残留在内存中（否则重新上传同名 dll 时仍会用到旧的内存副本）。
         foreach (var key in _slots.Keys)
         {
             if (!dllFiles.Contains(key))
             {
                 if (_slots.TryRemove(key, out var slot))
                 {
-                    _logger.LogInformation("插件文件被移除: {File}", key);
-                    // 交由调度引擎决定是否立即卸载；此处记录状态
+                    _logger.LogInformation("插件文件被移除，开始卸载: {File}", key);
+                    UnloadSlot(slot);
                     slot.State.Status = PluginStatus.Unloaded;
-                    slot.State.StatusMessage = "文件已被移除";
+                    slot.State.StatusMessage = "文件已被移除，已从内存卸载";
                 }
             }
         }
@@ -240,6 +241,15 @@ public sealed class PluginAssemblyLoader : IDisposable
         if (!_slots.TryGetValue(assemblyFile, out var slot))
             return;
 
+        UnloadSlot(slot);
+    }
+
+    /// <summary>
+    /// 卸载单个插件槽位：释放实例、卸载 AssemblyLoadContext 并触发 GC。
+    /// 供按文件名卸载与"文件被移除"场景复用，确保已加载进内存的程序集被真正清理。
+    /// </summary>
+    private void UnloadSlot(PluginLoadSlot slot)
+    {
         slot.Instance?.Dispose();
         slot.Instance = null;
 
@@ -258,7 +268,7 @@ public sealed class PluginAssemblyLoader : IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "卸载插件 {File} 时发生异常", assemblyFile);
+                _logger.LogError(ex, "卸载插件 {File} 时发生异常", slot.AssemblyFile);
             }
         }
 

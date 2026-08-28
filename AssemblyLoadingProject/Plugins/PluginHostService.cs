@@ -160,6 +160,26 @@ public sealed class PluginHostService : IDisposable
     {
         _loader.Scan();
 
+        // 已删除插件的配置处理：保留配置但关闭启用状态，
+        // 避免重启时 LoadPersistedAndStart 尝试加载已不存在的 dll；
+        // 待人为确认重新上传后，可手动再开启。
+        var currentFiles = _loader.Slots
+            .Select(s => s.AssemblyFile)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        bool disabledChanged = false;
+        foreach (var file in _configs.Keys)
+        {
+            var cfg = _configs[file];
+            if (!currentFiles.Contains(file) && cfg.Enabled)
+            {
+                cfg.Enabled = false;
+                _logger.LogInformation("插件文件 {File} 已删除，自动关闭其启用状态（配置保留）", file);
+                disabledChanged = true;
+            }
+        }
+        if (disabledChanged)
+            PersistAll();
+
         // 读取已持久化配置（若文件存在），用于覆盖默认值
         var persisted = _configStore.Load();
 
